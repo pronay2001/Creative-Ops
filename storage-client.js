@@ -5,7 +5,7 @@
    Same public API: loadAll(), insertRequest(), updateRequestField(), etc.
    ========================================================================== */
 
-const STORAGE_VERSION = 3;
+const STORAGE_VERSION = 4;
 
 /* ── Storage strategy ─────────────────────────────────────────────────
    Try browser storage first (works on normal hosts). If blocked
