@@ -135,7 +135,7 @@ const DataService = (() => {
       goLiveDate: data.goLiveDate,
       internalDeadline: deadline.toISOString().split('T')[0],
       createdDate: new Date().toISOString().split('T')[0],
-      createdBy: USERS[0]?.id || '',
+      createdBy: (window.__currentUser && window.__currentUser.id) || '',
       brief: data.brief || {},
       deliverables: deliverables,
       department: data.department || '',
@@ -177,7 +177,7 @@ const DataService = (() => {
     if (req) {
       req.assignedTo = userId;
       const user = USERS.find(u => u.id === userId);
-      addActivity(requestId, USERS[0]?.id || '', 'assigned', `Assigned to ${user ? user.name : userId}`);
+      addActivity(requestId, (window.__currentUser && window.__currentUser.id) || '', 'assigned', `Assigned to ${user ? user.name : userId}`);
       SupabaseClient.updateRequestField(requestId, 'assignedTo', userId).catch(e => console.error('Assign failed:', e));
       return enrichRequest(req);
     }
@@ -419,7 +419,7 @@ const DataService = (() => {
     const del = req.deliverables.find(d => d.id === deliverableId);
     if (!del) return null;
     del.status = newStatus;
-    addActivity(requestId, 'u1', 'status_changed', `Deliverable moved to ${STATUSES[newStatus] ? STATUSES[newStatus].label : newStatus}`);
+    addActivity(requestId, (window.__currentUser && window.__currentUser.id) || '', 'status_changed', `Deliverable moved to ${STATUSES[newStatus] ? STATUSES[newStatus].label : newStatus}`);
     SupabaseClient.persist();
     return enrichRequest(req);
   }
@@ -431,7 +431,7 @@ const DataService = (() => {
     if (!del) return null;
     del.assignedTo = userId;
     const user = USERS.find(u => u.id === userId);
-    addActivity(requestId, 'u1', 'assigned', `Deliverable assigned to ${user ? user.name : userId}`);
+    addActivity(requestId, (window.__currentUser && window.__currentUser.id) || '', 'assigned', `Deliverable assigned to ${user ? user.name : userId}`);
     SupabaseClient.persist();
     return enrichRequest(req);
   }
