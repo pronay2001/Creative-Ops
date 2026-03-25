@@ -17,6 +17,17 @@ const SupabaseClient = (() => {
       headers: { 'Content-Type': 'application/json', ...options.headers },
       ...options,
     });
+    if (res.status === 401) {
+      window.location.reload();
+      throw new Error('Session expired');
+    }
+    if (res.status === 403) {
+      const data = await res.json().catch(() => ({}));
+      if (typeof App !== 'undefined' && App.showToast) {
+        App.showToast(data.error || "You don't have permission to do this", 'error');
+      }
+      throw new Error(data.error || 'Forbidden');
+    }
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API error ${res.status}: ${text}`);
@@ -54,6 +65,7 @@ const SupabaseClient = (() => {
       show: c.show || c.show_name || '',
       status: c.status,
       createdDate: c.created_date ? c.created_date.split('T')[0] : '',
+      createdBy: c.created_by || '',
       description: c.description || '',
     };
   }
@@ -132,6 +144,35 @@ const SupabaseClient = (() => {
       stages: a.stages || a.default_stages || [],
       category: a.category || '',
     };
+  }
+
+  async function checkAuth() {
+    try {
+      const res = await fetch('/api/me');
+      if (res.status === 401) return null;
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function login(email) {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Login failed');
+    }
+    return data;
+  }
+
+  async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.reload();
   }
 
   async function loadAll() {
@@ -226,7 +267,7 @@ const SupabaseClient = (() => {
   async function insertComment(data) {
     await apiFetch(`/api/requests/${data.requestId}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ userId: data.userId, text: data.text }),
+      body: JSON.stringify({ text: data.text }),
     });
   }
 
@@ -272,7 +313,6 @@ const SupabaseClient = (() => {
         title: entry.title,
         type: entry.category,
         content: entry.content,
-        createdBy: entry.addedBy,
         tags: entry.tags || [],
         reference: entry.reference || '',
       }),
@@ -295,7 +335,6 @@ const SupabaseClient = (() => {
         status: item.status || 'planned',
         notes: item.notes || '',
         linkedRequestId: item.linkedRequestId || null,
-        createdBy: item.createdBy || null,
       }),
     });
     return { id: row.id, ...row };
@@ -339,6 +378,9 @@ const SupabaseClient = (() => {
   return {
     loadAll,
     persist,
+    checkAuth,
+    login,
+    logout,
     insertRequest,
     updateRequestField,
     deleteRequest,

@@ -27,6 +27,108 @@
 </div>
 <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 
+<!-- LOGIN SCREEN -->
+<div id="loginScreen" style="display:none">
+  <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:Outfit,Manrope,system-ui,sans-serif;padding:20px">
+    <div style="width:100%;max-width:380px;text-align:center">
+      <div style="margin-bottom:32px">
+        <svg width="48" height="48" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs><linearGradient id="loginLogoGrad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#d20820"/><stop offset="100%" stop-color="#6d0550"/></linearGradient></defs>
+          <rect width="32" height="32" rx="8" fill="url(#loginLogoGrad)"/>
+          <path d="M8 10h6v12H8V10zm10 0h6v12h-6V10z" fill="white" opacity="0.9"/>
+          <path d="M14 14h4v4h-4v-4z" fill="white"/>
+        </svg>
+        <h1 style="font-family:Outfit,sans-serif;font-size:24px;font-weight:700;margin:16px 0 4px;letter-spacing:-0.02em;color:#ffffff">CreativeOps</h1>
+        <p style="font-size:14px;color:#888;margin:0">Sign in to your Hoichoi account</p>
+      </div>
+      <form id="loginForm" onsubmit="event.preventDefault();handleLogin()" style="text-align:left">
+        <label style="display:block;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;font-family:Outfit,sans-serif">Email address</label>
+        <input
+          type="email"
+          id="loginEmail"
+          placeholder="you@hoichoi.tv"
+          required
+          autocomplete="email"
+          style="width:100%;padding:10px 14px;background:#191919;border:1px solid #333;border-radius:10px;color:#fff;font-size:14px;font-family:Manrope,sans-serif;outline:none;box-sizing:border-box;transition:border-color 0.2s"
+          onfocus="this.style.borderColor='#d20820'"
+          onblur="this.style.borderColor='#333'"
+        >
+        <div id="loginError" style="color:#f87171;font-size:13px;margin-top:8px;display:none"></div>
+        <button
+          type="submit"
+          id="loginBtn"
+          style="width:100%;margin-top:16px;padding:10px;background:linear-gradient(-60deg,#d20820 0%,#6d0550 100%);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;font-family:Outfit,sans-serif;cursor:pointer;transition:filter 0.2s"
+          onmouseover="this.style.filter='brightness(1.1)'"
+          onmouseout="this.style.filter='none'"
+        >Sign In</button>
+      </form>
+      <p style="font-size:12px;color:#555;margin-top:24px">Only @hoichoi.tv and @svf.in emails are accepted</p>
+    </div>
+  </div>
+</div>
+<script>
+async function handleLogin() {
+  var email = document.getElementById('loginEmail').value.trim();
+  var errEl = document.getElementById('loginError');
+  var btn = document.getElementById('loginBtn');
+  errEl.style.display = 'none';
+  btn.textContent = 'Signing in…';
+  btn.disabled = true;
+  try {
+    var user = await SupabaseClient.login(email);
+    window.__currentUser = user;
+    window.Permissions = buildPermissions(user);
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('bootLoader').style.display = 'flex';
+    await SupabaseClient.loadAll();
+    applyCurrentUserToUI();
+    showApp();
+    App.init();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+    btn.textContent = 'Sign In';
+    btn.disabled = false;
+  }
+}
+function buildPermissions(u) {
+  return {
+    canCreateRequest: function() { return ['requester','creative_lead','approver'].includes(u.role); },
+    canEditRequest: function(r) { return r.createdBy === u.id || r.created_by === u.id || u.role === 'creative_lead'; },
+    canAssignRequest: function(r) { return r.createdBy === u.id || r.created_by === u.id || u.role === 'creative_lead'; },
+    canAdvanceStatus: function(r) { return r.assignedTo === u.id || r.assigned_to === u.id || u.role === 'creative_lead' || u.role === 'approver'; },
+    canApprove: function() { return u.role === 'creative_lead' || u.role === 'approver'; },
+    canDeleteRequest: function(r) { return r.createdBy === u.id || r.created_by === u.id || u.role === 'creative_lead'; },
+    canCreateCampaign: function() { return ['requester','creative_lead','approver'].includes(u.role); },
+    canEditCampaign: function(c) { return c.createdBy === u.id || c.created_by === u.id || u.role === 'creative_lead'; },
+    canEditTimesheet: function(userId) { return userId === u.id; },
+    isLead: function() { return u.role === 'creative_lead'; },
+  };
+}
+function applyCurrentUserToUI() {
+  var u = window.__currentUser;
+  if (!u) return;
+  var initials = u.name.split(' ').map(function(w){return w[0]}).join('').toUpperCase().substring(0,2);
+  var avatar = document.getElementById('topbarAvatar');
+  if (avatar) {
+    avatar.textContent = initials;
+    avatar.title = u.name + ' (' + u.role.replace(/_/g,' ') + ')';
+  }
+  var sidebarUserName = document.getElementById('sidebarUserName');
+  var sidebarUserRole = document.getElementById('sidebarUserRole');
+  if (sidebarUserName) sidebarUserName.textContent = u.name;
+  if (sidebarUserRole) sidebarUserRole.textContent = u.role.replace(/_/g, ' ');
+  var sidebarAvatar = document.querySelector('#sidebarUserInfo .topbar-avatar');
+  if (sidebarAvatar) sidebarAvatar.textContent = initials;
+}
+function showApp() {
+  var loader = document.getElementById('bootLoader');
+  if (loader) loader.style.display = 'none';
+  var layout = document.getElementById('appLayout');
+  if (layout) layout.style.display = '';
+}
+</script>
+
 <div class="app-layout" id="appLayout" style="display:none">
 
   <!-- MOBILE OVERLAY -->
@@ -90,6 +192,19 @@
     </nav>
 
     <div class="sidebar-footer">
+      <div class="sidebar-user-info" id="sidebarUserInfo" style="padding:var(--space-2) var(--space-3);border-top:1px solid var(--color-border);margin-bottom:var(--space-2)">
+        <div style="display:flex;align-items:center;gap:var(--space-2);overflow:hidden">
+          <div class="topbar-avatar" style="width:24px;height:24px;font-size:10px;flex-shrink:0;margin-left:0">...</div>
+          <div class="sidebar-nav-label" style="overflow:hidden">
+            <div id="sidebarUserName" style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+            <div id="sidebarUserRole" style="font-size:10px;color:var(--color-text-faint);text-transform:capitalize;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+          </div>
+        </div>
+      </div>
+      <button class="sidebar-nav-item" onclick="SupabaseClient.logout()" style="color:var(--color-text-faint)">
+        <i data-lucide="log-out"></i>
+        <span class="sidebar-nav-label">Logout</span>
+      </button>
       <button class="sidebar-collapse-btn" onclick="App.toggleSidebar()" aria-label="Toggle sidebar">
         <i data-lucide="panel-left-close" id="collapseIcon"></i>
         <span class="sidebar-collapse-label sidebar-nav-label">Collapse</span>
@@ -116,7 +231,7 @@
       <button class="topbar-btn" data-theme-toggle aria-label="Toggle dark mode" onclick="App.toggleTheme()">
         <i data-lucide="moon" id="themeIcon"></i>
       </button>
-      <div class="topbar-avatar" title="Pronay Mukherjee">PM</div>
+      <div class="topbar-avatar" id="topbarAvatar" title="">...</div>
     </div>
   </header>
 

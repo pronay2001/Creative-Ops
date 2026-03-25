@@ -1,0 +1,207 @@
+## Addition to CreativeOps: Login System + User-Level Permissions
+
+This builds on top of the existing CreativeOps codebase. Add a proper login system and enforce user-level permissions so people can only create and edit their own work, while still seeing everyone else's work as read-only.
+
+---
+
+### 1. Login Screen
+
+Replace the simple "Who are you?" dropdown with a proper login page:
+
+- Show a clean login screen BEFORE the app loads (don't load the main app shell until authenticated)
+- Login form: Email input + "Sign In" button (no password for now, this is internal)
+- Only accept @hoichoi.tv and @svf.in email addresses
+- Validate that the email exists in the `users` table
+- On successful login, set the user in `express-session` and redirect to the app
+- Store `req.session.userId` server-side
+- Add a `GET /api/me` endpoint that returns the logged-in user's full profile
+- If not logged in, `/api/me` returns 401 and the frontend shows the login screen
+- Add `POST /api/auth/login` (accepts email, validates, sets session)
+- Add `POST /api/auth/logout` (clears session)
+- Show the logged-in user's name and role in the sidebar header
+- Add a "Logout" button at the bottom of the sidebar
+
+The login screen should match the app's dark theme (#0a0f14 background, #2dd4bf accent, Inter font). Keep it simple and clean with the CreativeOps logo.
+
+---
+
+### 2. Server-Side Permission Rules
+
+Enforce these rules in the API route handlers. The frontend is just cosmetic, the real enforcement is server-side.
+
+**Who can do what:**
+
+| Action | Who Can Do It |
+|--------|---------------|
+| View all requests, campaigns, dashboards, workload, calendar | Everyone (all logged-in users) |
+| Create a new request | Anyone with role: `requester`, `creative_lead`, or `approver` |
+| Edit a request's brief, title, priority, deadline | Only the person who created it (`created_by` matches session user) |
+| Assign a request to a designer | Only `creative_lead` or the request creator |
+| Change request status (advance/regress) | Only the assigned designer (`assigned_to` matches session user) OR `creative_lead` OR `approver` |
+| Add comments on any request | Everyone |
+| Approve/reject a request | Only users with role: `approver` or `creative_lead` |
+| Create a new campaign | Only `creative_lead`, `approver`, or `requester` |
+| Edit campaign details | Only the campaign creator or `creative_lead` |
+| Edit timesheet | Only your own timesheet entries |
+| Keka sync | Only `creative_lead` |
+| Delete a request | Only the creator or `creative_lead` |
+
+**Role hierarchy for reference** (from seed-data.js):
+- `creative_lead` - Can do everything (admin-level)
+- `approver` - Can approve/reject, create requests, view all
+- `requester` - Can create requests, edit their own, view all
+- `designer` / `motion_designer` / `video_editor` - Can update status on their assigned work, add comments, log time
+
+**Server-side enforcement pattern:**
+```js
+// Example: PATCH /api/requests/:id
+router.patch('/api/requests/:id', async (req, res) => {
+  const userId = req.session.userId;
+  const request = await db.query('SELECT * FROM requests WHERE id = $1', [req.params.id]);
+  
+  if (!request.rows[0]) return res.status(404).json({ error: 'Not found' });
+  
+  const user = await db.query('SELECT * FROM users WHERE id = $1', [userId]);
+  const isCreator = request.rows[0].created_by === userId;
+  const isLead = user.rows[0].role === 'creative_lead';
+  
+  if (!isCreator && !isLead) {
+    return res.status(403).json({ error: 'You can only edit requests you created' });
+  }
+  
+  // proceed with update...
+});
+```
+
+**Auth middleware:**
+```js
+function requireAuth(req, res, next) {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Not logged in' });
+  }
+  next();
+}
+
+// Apply to all /api/ routes except /api/auth/*
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/auth/')) return next();
+  requireAuth(req, res, next);
+});
+```
+
+---
+
+### 3. Frontend Permission Enforcement (Cosmetic Layer)
+
+After the user logs in and `/api/me` returns their profile, store it in a global variable (e.g., `window.__currentUser`). Then use it to show/hide UI elements.
+
+**What to hide/disable based on the current user:**
+
+a) **"New Request" button** - Hide if user role is `designer`, `motion_designer`, or `video_editor` (they don't create requests, they fulfill them)
+
+b) **Request detail panel - Edit controls:**
+- If the current user is NOT the creator and NOT `creative_lead`: hide the edit button for title, brief, priority, deadline fields. Show them as read-only text instead.
+- The "Advance Status" button should only appear if the user is the assignee, `creative_lead`, or `approver`
+- The "Approve/Reject" buttons should only appear for `approver` and `creative_lead` roles
+- The "Assign to" dropdown should only appear for `creative_lead` or the request creator
+- The "Delete" option in context menu should only appear for the creator or `creative_lead`
+- Comments section remains visible and usable for everyone
+
+c) **Campaign detail - Edit controls:**
+- "Edit Campaign" only for the campaign creator or `creative_lead`
+- "New Request" button within a campaign only for users who can create requests
+- Knowledge base and content schedule: add/edit only for campaign creator or `creative_lead`
+
+d) **Creative Team view:**
+- Assignment dropdowns (reassigning deliverables) only for `creative_lead`
+- Status advance buttons on deliverables only for the assigned designer or `creative_lead`
+
+e) **Timesheet:**
+- Users can only edit their own timesheet rows
+- `creative_lead` can view everyone's timesheets but only edit their own
+- The user switcher dropdown in timesheet view should be view-only for non-leads
+
+f) **Settings:**
+- "Sync from Keka" button only visible to `creative_lead`
+
+**Implementation approach in app.js:**
+
+Do NOT rewrite app.js from scratch. Instead, add a thin permission layer. The cleanest way:
+
+1. After login, fetch `/api/me` and store in `window.__currentUser`
+2. Create a small permissions helper object:
+```js
+window.Permissions = {
+  canCreateRequest: () => ['requester', 'creative_lead', 'approver'].includes(window.__currentUser.role),
+  canEditRequest: (request) => request.created_by === window.__currentUser.id || window.__currentUser.role === 'creative_lead',
+  canAssignRequest: (request) => request.created_by === window.__currentUser.id || window.__currentUser.role === 'creative_lead',
+  canAdvanceStatus: (request) => request.assigned_to === window.__currentUser.id || ['creative_lead', 'approver'].includes(window.__currentUser.role),
+  canApprove: () => ['creative_lead', 'approver'].includes(window.__currentUser.role),
+  canDeleteRequest: (request) => request.created_by === window.__currentUser.id || window.__currentUser.role === 'creative_lead',
+  canEditCampaign: (campaign) => campaign.created_by === window.__currentUser.id || window.__currentUser.role === 'creative_lead',
+  canEditTimesheet: (userId) => userId === window.__currentUser.id,
+  isLead: () => window.__currentUser.role === 'creative_lead',
+};
+```
+3. In the render functions within app.js, wrap action buttons with permission checks:
+```js
+// Example: only show "New Request" if permitted
+${Permissions.canCreateRequest() ? '<button class="btn btn-primary" onclick="App.openNewRequestModal()">New Request</button>' : ''}
+
+// Example: only show edit controls if permitted
+${Permissions.canEditRequest(request) ? '<button onclick="...">Edit</button>' : ''}
+```
+
+**IMPORTANT**: The `Permissions` object and `window.__currentUser` should be set up in `storage-client.js` or a new small file loaded before `app.js`. Then the render functions in `app.js` need minimal modifications, just wrapping existing buttons in `${Permissions.check() ? '...' : ''}` ternaries.
+
+---
+
+### 4. API Error Handling for 403s
+
+When the server returns a 403 (forbidden), the frontend should show a toast notification: "You don't have permission to do this" using the existing `App.showToast()` function.
+
+Update `storage-client.js` API calls to handle 403:
+```js
+async function apiCall(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    // Session expired, show login screen
+    window.location.reload();
+    return;
+  }
+  if (res.status === 403) {
+    const data = await res.json();
+    App.showToast(data.error || "You don't have permission to do this", 'error');
+    throw new Error('Forbidden');
+  }
+  return res.json();
+}
+```
+
+---
+
+### 5. Login Flow Summary
+
+1. User opens app
+2. Frontend calls `GET /api/me`
+3. If 401: show login screen (email input + sign in button)
+4. User enters their @hoichoi.tv email, clicks Sign In
+5. Frontend calls `POST /api/auth/login` with `{ email }`
+6. Server validates email exists in users table, sets `req.session.userId`
+7. Frontend receives user profile, stores in `window.__currentUser`, sets up `Permissions`
+8. Main app loads and renders with permission-aware UI
+9. All subsequent API calls include the session cookie automatically
+10. If session expires, any 401 response triggers login screen again
+
+---
+
+### Constraints
+
+- The login screen should be part of `index.html` (hidden div that shows before the app layout), NOT a separate HTML file
+- Server-side permission checks are mandatory. Frontend hiding is cosmetic only, never trust the client.
+- `creative_lead` role acts as admin and can do everything
+- All API routes except `/api/auth/*` require authentication
+- Keep the existing app.js modifications minimal. Use the `Permissions` helper pattern to wrap existing buttons rather than restructuring render functions.
+- When a user tries to do something they can't (and somehow the frontend check was bypassed), the server returns 403 with a clear error message
+
+Build this now on top of the existing CreativeOps codebase.

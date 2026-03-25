@@ -48,8 +48,21 @@ public/
 - **Dark surfaces**: #0d0d0d / #191919 / #222222 / #2a2a2a / #333333
 - **Theme**: Dark by default (data-theme="dark"), light mode and prefers-color-scheme supported
 
+### Authentication & Permissions
+- **Login**: Email-based, domain-restricted (@hoichoi.tv / @svf.in). No password — login by email only.
+- **Session**: express-session with memory store, cookie-based. `requireAuth` middleware on all `/api/*` except `/api/auth/*`.
+- **Roles**: `creative_lead`, `designer`, `approver`, `requester`
+- **Permission matrix**:
+  - Create requests/campaigns: requester, creative_lead, approver
+  - Assign requests: creative_lead only
+  - Advance status/approve: creative_lead, approver (+ assigned designer for own work)
+  - Import/reset data: creative_lead only
+  - Timesheet user switcher: creative_lead only (others see own timesheet)
+- **Frontend**: `window.__currentUser` + `window.Permissions` object (built in index.html). UI buttons/actions hidden based on role.
+- **Seed users**: 8 users seeded in db/migrate.js (Pronay=lead, Sneha/Arjun/Riya=designers, Anirban/Priyanka=approvers, Mitali/Sourav=requesters)
+
 ### Key Constraints
-- **DO NOT modify**: app.js, data-service.js
+- **DO NOT modify**: data-service.js; app.js and index.html only for explicit auth/permission work
 - **style.css, index.html**: Updated for Hoichoi brand design system; avoid further changes unless explicitly requested
 - **storage-client.js** must keep same public API (method names, signatures, return shapes)
 - Static config (platforms, verticals, departments, asset types) comes from seed-data.js (browser-side)

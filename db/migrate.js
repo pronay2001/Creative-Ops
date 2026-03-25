@@ -104,6 +104,19 @@ CREATE TABLE IF NOT EXISTS content_schedule (
 );
 `;
 
+const seedUsers = `
+INSERT INTO users (id, name, email, role, skills, capacity) VALUES
+  ('usr_pronay',   'Pronay Mukherjee', 'pronay@hoichoi.tv',   'creative_lead', ARRAY['video','motion','design'], 40),
+  ('usr_sneha',    'Sneha Roy',        'sneha@hoichoi.tv',    'designer',      ARRAY['video','motion'], 35),
+  ('usr_arjun',    'Arjun Das',        'arjun@hoichoi.tv',    'designer',      ARRAY['static','social'], 35),
+  ('usr_riya',     'Riya Sen',         'riya@hoichoi.tv',     'designer',      ARRAY['static','banner','social'], 35),
+  ('usr_anirban',  'Anirban Ghosh',    'anirban@hoichoi.tv',  'approver',      ARRAY['review'], 0),
+  ('usr_mitali',   'Mitali Chakraborty','mitali@hoichoi.tv',  'requester',     ARRAY['content'], 0),
+  ('usr_sourav',   'Sourav Banerjee',  'sourav@svf.in',       'requester',     ARRAY['marketing'], 0),
+  ('usr_priyanka', 'Priyanka Sarkar',  'priyanka@svf.in',     'approver',      ARRAY['review'], 0)
+ON CONFLICT (id) DO NOTHING;
+`;
+
 const alterations = `
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS vertical TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS is_expedited BOOLEAN DEFAULT false;
@@ -121,6 +134,7 @@ async function migrate() {
   try {
     await pool.query(schema);
     await pool.query(alterations);
+    await pool.query(seedUsers);
     console.log('[migrate] Schema created successfully');
   } catch (err) {
     console.error('[migrate] Error:', err.message);

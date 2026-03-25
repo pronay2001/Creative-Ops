@@ -155,9 +155,7 @@ const App = (() => {
     const kpi = DataService.getDashboardKPIs();
     const activity = DataService.getRecentActivity(10);
 
-    // My Work — requests assigned to first designer (simulated current user)
-    const designers = DataService.getDesigners();
-    const currentUserId = designers.length > 0 ? designers[0].id : null;
+    const currentUserId = window.__currentUser ? window.__currentUser.id : null;
     const myWork = currentUserId ? DataService.getRequests({ assignedTo: currentUserId }).filter(r => !['live'].includes(r.status)) : [];
 
     // Due This Week
@@ -180,7 +178,7 @@ const App = (() => {
     return `<div class="view-container">
       <div class="view-header">
         <h1>Dashboard</h1>
-        <button class="btn btn-primary" onclick="App.openNewRequestModal()"><i data-lucide="plus"></i> Quick Create</button>
+        ${window.Permissions && window.Permissions.canCreateRequest() ? '<button class="btn btn-primary" onclick="App.openNewRequestModal()"><i data-lucide="plus"></i> Quick Create</button>' : ''}
       </div>
 
       <div class="kpi-grid">
@@ -331,7 +329,7 @@ const App = (() => {
     return `<div class="view-container">
       <div class="view-header">
         <h1>Requests <span class="text-muted text-xs" style="font-weight:400">(${reqs.length})</span></h1>
-        <button class="btn btn-primary" onclick="App.openNewRequestModal()"><i data-lucide="plus"></i> New Request</button>
+        ${window.Permissions && window.Permissions.canCreateRequest() ? '<button class="btn btn-primary" onclick="App.openNewRequestModal()"><i data-lucide="plus"></i> New Request</button>' : ''}
       </div>
 
       <div class="filter-bar">
@@ -495,7 +493,7 @@ const App = (() => {
                   ${d.isOverdue ? '<span class="badge badge-red">Overdue</span>' : d.isAtRisk ? '<span class="badge badge-orange">At Risk</span>' : ''}
                 </div>
               </div>
-              <div class="ct-unassigned-assign"><select class="form-input form-input-sm ct-assign-select" onchange="App.assignCreativeTeamDeliverable('${d.requestId}', '${d.id}', this.value)"><option value="">Assign to...</option>${designers.map(des => '<option value="' + des.id + '">' + des.name + '</option>').join('')}</select></div>
+              ${window.Permissions && window.Permissions.isLead() ? `<div class="ct-unassigned-assign"><select class="form-input form-input-sm ct-assign-select" onchange="App.assignCreativeTeamDeliverable('${d.requestId}', '${d.id}', this.value)"><option value="">Assign to...</option>${designers.map(des => '<option value="' + des.id + '">' + des.name + '</option>').join('')}</select></div>` : ''}
             </div>`;
           }).join('')}
         </div>`}
@@ -515,7 +513,7 @@ const App = (() => {
                       <div class="ct-assigned-item-title">${priorityDot(d.priority)} <span>${d.requestTitle}</span></div>
                       <div class="ct-assigned-item-meta"><span class="text-xs"><i data-lucide="${assetType ? assetType.icon : 'file'}" style="width:11px;height:11px"></i> ${assetType ? assetType.name : ''}</span> <span class="text-xs font-mono">${formatDate(d.goLiveDate)}</span></div>
                     </div>
-                    <div class="ct-assigned-item-actions">${statusBadge(d.status)} <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.advanceCreativeTeamDeliverable('${d.requestId}','${d.id}')" title="Advance status"><i data-lucide="arrow-right" style="width:12px;height:12px"></i></button></div>
+                    <div class="ct-assigned-item-actions">${statusBadge(d.status)} ${window.Permissions && (window.Permissions.isLead() || d.assignedTo === (window.__currentUser && window.__currentUser.id)) ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.advanceCreativeTeamDeliverable('${d.requestId}','${d.id}')" title="Advance status"><i data-lucide="arrow-right" style="width:12px;height:12px"></i></button>` : ''}</div>
                   </div>`;
                 }).join('')}
               </div>
@@ -588,12 +586,12 @@ const App = (() => {
       <!-- Actions -->
       <div class="panel-section">
         <div class="flex gap-2" style="flex-wrap:wrap;">
-          <button class="btn btn-primary btn-sm" onclick="App.advanceStatus('${r.id}')"><i data-lucide="arrow-right"></i> Advance Status</button>
+          ${window.Permissions && window.Permissions.canAdvanceStatus(r) ? `<button class="btn btn-primary btn-sm" onclick="App.advanceStatus('${r.id}')"><i data-lucide="arrow-right"></i> Advance Status</button>` : ''}
           <button class="btn btn-secondary btn-sm" onclick="App.uploadVersion('${r.id}')"><i data-lucide="upload"></i> Upload Version</button>
-          <button class="btn btn-ghost btn-sm" onclick="App.duplicateRequest('${r.id}')"><i data-lucide="copy"></i> Duplicate</button>
-          <div class="action-dropdown-container">
+          ${window.Permissions && window.Permissions.canCreateRequest() ? `<button class="btn btn-ghost btn-sm" onclick="App.duplicateRequest('${r.id}')"><i data-lucide="copy"></i> Duplicate</button>` : ''}
+          ${window.Permissions && window.Permissions.canApprove() ? `<div class="action-dropdown-container">
             <button class="btn btn-ghost btn-sm" onclick="App.toggleApprovalDropdown(event, '${r.id}')"><i data-lucide="check-circle"></i> Approve</button>
-          </div>
+          </div>` : ''}
         </div>
       </div>
 
@@ -608,10 +606,10 @@ const App = (() => {
           <div class="detail-field"><label>Go-Live Date</label><p class="font-mono">${formatDate(r.goLiveDate)}</p></div>
           <div class="detail-field"><label>Internal Deadline</label><p class="font-mono ${r.isOverdue ? 'style="color:var(--color-error)"' : ''}">${formatDate(r.internalDeadline)}</p></div>
           <div class="detail-field"><label>Assigned To</label><p>
-            <span class="assignee-dropdown-trigger" onclick="App.toggleAssigneeDropdown(event, '${r.id}')">
+            ${window.Permissions && window.Permissions.canAssignRequest(r) ? `<span class="assignee-dropdown-trigger" onclick="App.toggleAssigneeDropdown(event, '${r.id}')">
               ${r.assignee ? `${renderAvatar(r.assignee,'sm')} ${r.assignee.name}` : '<span class="text-faint">Unassigned</span>'}
               <i data-lucide="chevron-down" style="width:12px;height:12px;color:var(--color-text-faint)"></i>
-            </span>
+            </span>` : `${r.assignee ? `${renderAvatar(r.assignee,'sm')} ${r.assignee.name}` : '<span class="text-faint">Unassigned</span>'}`}
           </p></div>
           <div class="detail-field"><label>Created By</label><p>${r.creator ? r.creator.name : '—'}</p></div>
           <div class="detail-field"><label>Vertical</label><p>${r.verticalObj ? r.verticalObj.name : '—'}</p></div>
@@ -636,10 +634,10 @@ const App = (() => {
               </div>
               <div class="deliverable-detail-right">
                 <span class="deliverable-status">${statusBadge(d.status)}</span>
-                <span class="deliverable-assignee-trigger" onclick="event.stopPropagation();App.toggleDelAssigneeDropdown(event,'${r.id}','${d.id}')">
+                ${window.Permissions && window.Permissions.isLead() ? `<span class="deliverable-assignee-trigger" onclick="event.stopPropagation();App.toggleDelAssigneeDropdown(event,'${r.id}','${d.id}')">
                   ${d.assignee ? renderAvatar(d.assignee,'sm') : '<span class="deliverable-unassigned"><i data-lucide="user-plus" style="width:12px;height:12px"></i></span>'}
-                </span>
-                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.advanceDeliverableStatus('${r.id}','${d.id}')" title="Advance status"><i data-lucide="arrow-right" style="width:12px;height:12px"></i></button>
+                </span>` : `${d.assignee ? renderAvatar(d.assignee,'sm') : ''}`}
+                ${window.Permissions && (window.Permissions.isLead() || (d.assignedTo === (window.__currentUser && window.__currentUser.id))) ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.advanceDeliverableStatus('${r.id}','${d.id}')" title="Advance status"><i data-lucide="arrow-right" style="width:12px;height:12px"></i></button>` : ''}
               </div>
             </div>
           `).join('')}
@@ -1212,7 +1210,7 @@ const App = (() => {
     return `<div class="view-container">
       <div class="view-header">
         <h1>Campaigns</h1>
-        <button class="btn btn-primary" onclick="App.openNewCampaignModal()"><i data-lucide="plus"></i> New Campaign</button>
+        ${window.Permissions && window.Permissions.canCreateCampaign() ? '<button class="btn btn-primary" onclick="App.openNewCampaignModal()"><i data-lucide="plus"></i> New Campaign</button>' : ''}
       </div>
 
       <div class="card-grid">
@@ -1280,7 +1278,7 @@ const App = (() => {
           <h1>${campaign.name}</h1>
           <p class="text-xs text-muted mt-2">${campaign.description || ''}</p>
         </div>
-        <button class="btn btn-primary" onclick="App.openNewRequestModal('${campaignId}')"><i data-lucide="plus" style="width:16px;height:16px"></i> New Request</button>
+        ${window.Permissions && window.Permissions.canCreateRequest() ? `<button class="btn btn-primary" onclick="App.openNewRequestModal('${campaignId}')"><i data-lucide="plus" style="width:16px;height:16px"></i> New Request</button>` : ''}
       </div>
 
       <div class="kpi-grid" style="margin-bottom:var(--space-4)">
@@ -2119,10 +2117,12 @@ const App = (() => {
     weekEnd.setDate(weekEnd.getDate() + 6);
     const weekLabel = `${weekStart.toLocaleDateString('en-IN', {day:'numeric', month:'short'})} — ${weekEnd.toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'})}`;
 
-    // Get the first designer as "current user" if not set
     if (!timesheetUserId) {
-      const designers = DataService.getDesigners();
-      timesheetUserId = designers.length > 0 ? designers[0].id : null;
+      timesheetUserId = window.__currentUser ? window.__currentUser.id : null;
+      if (!timesheetUserId) {
+        const designers = DataService.getDesigners();
+        timesheetUserId = designers.length > 0 ? designers[0].id : null;
+      }
     }
 
     if (timesheetTab === 'team') {
@@ -2169,9 +2169,9 @@ const App = (() => {
         </div>
         <div class="flex gap-2">
           <button class="btn btn-secondary btn-sm" onclick="App.timesheetThisWeek()">This Week</button>
-          <select class="filter-select" onchange="App.switchTimesheetUser(this.value)">
+          ${window.Permissions && window.Permissions.isLead() ? `<select class="filter-select" onchange="App.switchTimesheetUser(this.value)">
             ${DataService.getDesigners().map(d => `<option value="${d.id}" ${d.id===timesheetUserId?'selected':''}>${d.name}</option>`).join('')}
-          </select>
+          </select>` : ''}
         </div>
       </div>
 
@@ -2568,8 +2568,8 @@ const App = (() => {
         <p class="text-xs text-muted" style="margin-bottom:var(--space-4)">All data is stored locally in your browser. Use export/import to back up or share data across devices.</p>
         <div style="display:flex;gap:var(--space-3);flex-wrap:wrap">
           <button class="btn btn-primary btn-sm" onclick="App.exportData()"><i data-lucide="download"></i> Export Data (JSON)</button>
-          <button class="btn btn-secondary btn-sm" onclick="App.importData()"><i data-lucide="upload"></i> Import Data</button>
-          <button class="btn btn-ghost btn-sm" onclick="App.resetData()" style="color:var(--color-error)"><i data-lucide="trash-2"></i> Reset to Default Data</button>
+          ${window.Permissions && window.Permissions.isLead() ? `<button class="btn btn-secondary btn-sm" onclick="App.importData()"><i data-lucide="upload"></i> Import Data</button>
+          <button class="btn btn-ghost btn-sm" onclick="App.resetData()" style="color:var(--color-error)"><i data-lucide="trash-2"></i> Reset to Default Data</button>` : ''}
         </div>
         <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="App.handleImportFile(event)">
       </div>
@@ -3068,14 +3068,15 @@ const App = (() => {
 
     const menu = document.createElement('div');
     menu.className = 'context-menu';
+    const P = window.Permissions;
     menu.innerHTML = `
       <button class="context-menu-item" onclick="App.openRequestDetail('${reqId}')"><i data-lucide="eye" style="width:14px;height:14px"></i> View Details<span class="context-shortcut">Enter</span></button>
-      ${nextStatus ? `<button class="context-menu-item" onclick="App.advanceStatus('${reqId}');App.closeContextMenu()"><i data-lucide="arrow-right" style="width:14px;height:14px"></i> Advance to ${STATUSES[nextStatus].label}</button>` : ''}
-      <div class="context-menu-divider"></div>
+      ${nextStatus && P && P.canAdvanceStatus(r) ? `<button class="context-menu-item" onclick="App.advanceStatus('${reqId}');App.closeContextMenu()"><i data-lucide="arrow-right" style="width:14px;height:14px"></i> Advance to ${STATUSES[nextStatus].label}</button>` : ''}
+      ${P && P.canAdvanceStatus(r) ? `<div class="context-menu-divider"></div>
       <button class="context-menu-item" onclick="App.inlineSetPriority('${reqId}','urgent');App.closeContextMenu()"><i data-lucide="alert-triangle" style="width:14px;height:14px;color:var(--color-error)"></i> Set Urgent</button>
-      <button class="context-menu-item" onclick="App.inlineSetPriority('${reqId}','high');App.closeContextMenu()"><i data-lucide="arrow-up" style="width:14px;height:14px;color:var(--color-warning)"></i> Set High</button>
-      <div class="context-menu-divider"></div>
-      <button class="context-menu-item" onclick="App.duplicateRequest('${reqId}');App.closeContextMenu()"><i data-lucide="copy" style="width:14px;height:14px"></i> Duplicate</button>
+      <button class="context-menu-item" onclick="App.inlineSetPriority('${reqId}','high');App.closeContextMenu()"><i data-lucide="arrow-up" style="width:14px;height:14px;color:var(--color-warning)"></i> Set High</button>` : ''}
+      ${P && P.canCreateRequest() ? `<div class="context-menu-divider"></div>
+      <button class="context-menu-item" onclick="App.duplicateRequest('${reqId}');App.closeContextMenu()"><i data-lucide="copy" style="width:14px;height:14px"></i> Duplicate</button>` : ''}
     `;
     menu.style.top = `${e.clientY}px`;
     menu.style.left = `${Math.min(e.clientX, window.innerWidth - 200)}px`;
@@ -3279,7 +3280,7 @@ const App = (() => {
       if (e.key === '?') { e.preventDefault(); openShortcuts(); return; }
 
       // N — new request
-      if (e.key === 'n' || e.key === 'N') { e.preventDefault(); openNewRequestModal(); return; }
+      if (e.key === 'n' || e.key === 'N') { if (window.Permissions && window.Permissions.canCreateRequest()) { e.preventDefault(); openNewRequestModal(); } return; }
 
       // Arrow keys — table row navigation
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -3333,22 +3334,24 @@ const App = (() => {
     updateNotificationCount();
   }
 
-  // Boot — load data from browser storage and render
-  function showApp() {
-    var loader = document.getElementById('bootLoader');
-    if (loader) loader.style.display = 'none';
-    var layout = document.getElementById('appLayout');
-    if (layout) layout.style.display = '';
-  }
-
   async function boot() {
+    var user = await SupabaseClient.checkAuth();
+    if (!user) {
+      document.getElementById('bootLoader').style.display = 'none';
+      document.getElementById('loginScreen').style.display = '';
+      return;
+    }
+
+    window.__currentUser = user;
+    window.Permissions = buildPermissions(user);
+
     try {
       await SupabaseClient.loadAll();
+      applyCurrentUserToUI();
       showApp();
       init();
     } catch (e) {
       console.error('Data load failed:', e);
-      // Ensure globals exist even on failure
       window.USERS = window.USERS || [];
       window.CAMPAIGNS = window.CAMPAIGNS || [];
       window.REQUESTS = window.REQUESTS || [];
@@ -3376,6 +3379,7 @@ const App = (() => {
         high: { label: 'High', color: 'var(--color-warning)', dot: '#fbbf24' },
         urgent: { label: 'Urgent', color: 'var(--color-error)', dot: '#f87171' },
       };
+      applyCurrentUserToUI();
       showApp();
       try { init(); } catch (initErr) { console.error('Init failed:', initErr); }
       App.showToast('Failed to load data: ' + (e.message || e), 'error');
@@ -3390,7 +3394,7 @@ const App = (() => {
 
   /* ── PUBLIC API ────────────────────────────────────────────────────── */
   return {
-    navigate, toggleSidebar, toggleMobileSidebar, closeMobileSidebar, toggleTheme,
+    init, navigate, toggleSidebar, toggleMobileSidebar, closeMobileSidebar, toggleTheme,
     openNewRequestModal, onAssetTypeChange, submitModal, closeModal,
     addModalDeliverable, removeModalDeliverable, updateModalDeliverable, toggleModalDelPlatform,
     advanceDeliverableStatus, toggleDelAssigneeDropdown, assignDeliverableToDesigner,
