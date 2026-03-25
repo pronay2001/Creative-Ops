@@ -1,0 +1,483 @@
+# CreativeOps - Full-Stack Build Prompt for Replit AI
+
+Copy everything between the two `---` lines below and paste it into Replit AI.
+
+---
+
+## Context
+
+You are building **CreativeOps**, an internal creative operations management tool for Hoichoi (hoichoi.tv), an Indian Bengali OTT streaming platform. The app currently exists as a static frontend using localStorage. You need to convert it into a full-stack application with a PostgreSQL backend, Keka HR integration for employee sync, and Microsoft Graph API email notifications.
+
+**IMPORTANT**: Build everything first using placeholder environment variables. I will provide the actual API keys, secrets, and credentials at the very end after the code is complete. Use `process.env.VARIABLE_NAME` everywhere and create a `.env.example` file listing all required variables. Never hardcode any secrets.
+
+---
+
+## Current Codebase
+
+The app is vanilla JS (no framework, no build step) with these files:
+
+### `index.html` - App shell
+- Dark theme (#0a0f14 background), hoichoi teal (#2dd4bf) accent
+- Loads CDN scripts: Lucide icons, Chart.js, SortableJS
+- Loads local scripts: seed-data.js, storage-client.js, data-service.js, app.js
+
+### `app.js` (~3400 lines) - All UI logic
+- IIFE pattern exposing `App` global object
+- Handles routing, rendering, modals, drag-and-drop, charts
+- Views: Dashboard, Requests, Campaigns, Calendar, Assets, Workload, Creative Team, Timesheet, Settings
+- Key functions: `submitModal()`, `assignToDesigner()`, `advanceStatus()`, `addComment()`, `assignCreativeTeamDeliverable()`
+- Currently calls `DataService.*` for all data operations
+
+### `data-service.js` (~590 lines) - Data layer
+- Wraps `SupabaseClient` with computed fields (progress %, assignee objects, etc.)
+- Key methods: `getRequests()`, `getCampaigns()`, `getDashboardKPIs()`, `getWorkload()`, `assignDeliverable()`
+
+### `storage-client.js` (~650 lines) - Storage abstraction
+- Currently uses localStorage with in-memory fallback
+- Exposes `SupabaseClient` global with methods: `loadAll()`, `insertRequest()`, `updateRequestField()`, `addComment()`, `assignDeliverable()`, `insertCampaign()`, etc.
+- Seeds from `SEED_DATA` on first load
+
+### `seed-data.js` (~264 lines) - Static config + initial data
+- Platforms: Instagram, YouTube, X, Facebook, Hoichoi OTT, Push, Email, LinkedIn
+- Asset types: poster, teaser_trailer, prebuzz, episode_thumbnail, cms_thumbnail, crm_static, etc.
+- 15 team members with @hoichoi.tv emails, roles (creative_lead, designer, motion_designer, video_editor, requester, approver)
+- 5 campaigns, ~20 sample requests with deliverables
+- User structure: `{ id, name, email, role, skills, capacity }`
+
+### `style.css` (~4200 lines) - All styles
+### `server.js` - Currently a simple static file server (to be replaced)
+
+---
+
+## What to Build
+
+### Phase 1: Backend Server (Express + PostgreSQL)
+
+Replace `server.js` with a full Express backend.
+
+**Database schema** (use `pg` package, not an ORM):
+
+```sql
+-- Users table (syncs with Keka, also seeded locally)
+CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  keka_id TEXT UNIQUE,
+  name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  role TEXT NOT NULL DEFAULT 'requester',
+  skills TEXT[] DEFAULT '{}',
+  capacity INTEGER DEFAULT 0,
+  avatar_url TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Campaigns
+CREATE TABLE campaigns (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  show TEXT,
+  status TEXT DEFAULT 'active',
+  description TEXT,
+  created_date TIMESTAMPTZ DEFAULT NOW(),
+  created_by TEXT REFERENCES users(id),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Requests (creative tasks)
+CREATE TABLE requests (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  campaign_id TEXT REFERENCES campaigns(id),
+  asset_type_id TEXT NOT NULL,
+  department TEXT,
+  platforms TEXT[] DEFAULT '{}',
+  assigned_to TEXT REFERENCES users(id),
+  status TEXT DEFAULT 'intake',
+  priority TEXT DEFAULT 'medium',
+  go_live_date DATE,
+  internal_deadline DATE,
+  brief JSONB DEFAULT '{}',
+  created_date TIMESTAMPTZ DEFAULT NOW(),
+  created_by TEXT REFERENCES users(id),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Deliverables (sub-items of a request)
+CREATE TABLE deliverables (
+  id TEXT PRIMARY KEY,
+  request_id TEXT REFERENCES requests(id) ON DELETE CASCADE,
+  asset_type_id TEXT NOT NULL,
+  platforms TEXT[] DEFAULT '{}',
+  assigned_to TEXT REFERENCES users(id),
+  status TEXT DEFAULT 'intake',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Comments
+CREATE TABLE comments (
+  id SERIAL PRIMARY KEY,
+  request_id TEXT REFERENCES requests(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id),
+  text TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Activity log
+CREATE TABLE activity_log (
+  id SERIAL PRIMARY KEY,
+  request_id TEXT REFERENCES requests(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id),
+  action TEXT NOT NULL,
+  details JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Timesheet entries
+CREATE TABLE timesheet_entries (
+  id SERIAL PRIMARY KEY,
+  user_id TEXT REFERENCES users(id),
+  request_id TEXT REFERENCES requests(id),
+  date DATE NOT NULL,
+  hours NUMERIC(4,2) DEFAULT 0,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Knowledge base entries (per campaign)
+CREATE TABLE knowledge_entries (
+  id SERIAL PRIMARY KEY,
+  campaign_id TEXT REFERENCES campaigns(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  type TEXT,
+  content TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Content schedule (per campaign)
+CREATE TABLE content_schedule (
+  id SERIAL PRIMARY KEY,
+  campaign_id TEXT REFERENCES campaigns(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  platform TEXT,
+  scheduled_date DATE,
+  status TEXT DEFAULT 'planned',
+  assigned_to TEXT REFERENCES users(id),
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**REST API endpoints** (all under `/api/`, no auth initially):
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/load-all` | Bulk load: users + campaigns + requests + deliverables |
+| GET | `/api/users` | List all users |
+| POST | `/api/users` | Create a user |
+| GET | `/api/campaigns` | List campaigns |
+| POST | `/api/campaigns` | Create campaign |
+| PATCH | `/api/campaigns/:id` | Update campaign |
+| GET | `/api/requests` | List requests (with query filters) |
+| POST | `/api/requests` | Create request |
+| PATCH | `/api/requests/:id` | Update request fields |
+| DELETE | `/api/requests/:id` | Delete request |
+| POST | `/api/requests/:id/assign` | Assign request to user (triggers email) |
+| POST | `/api/requests/:id/status` | Change status (triggers email) |
+| GET | `/api/requests/:id/comments` | Get comments |
+| POST | `/api/requests/:id/comments` | Add comment (triggers email) |
+| GET | `/api/requests/:id/activity` | Get activity log |
+| POST | `/api/requests/:id/deliverables` | Add deliverable |
+| PATCH | `/api/deliverables/:id` | Update deliverable |
+| POST | `/api/deliverables/:id/assign` | Assign deliverable (triggers email) |
+| GET | `/api/timesheet` | Get timesheet entries |
+| POST | `/api/timesheet` | Save timesheet entry |
+| GET | `/api/campaigns/:id/knowledge` | Get knowledge entries |
+| POST | `/api/campaigns/:id/knowledge` | Add knowledge entry |
+| DELETE | `/api/knowledge/:id` | Delete knowledge entry |
+| GET | `/api/campaigns/:id/content-schedule` | Get content schedule |
+| POST | `/api/campaigns/:id/content-schedule` | Add content item |
+| PATCH | `/api/content-schedule/:id` | Update content item |
+| DELETE | `/api/content-schedule/:id` | Delete content item |
+| POST | `/api/keka/sync` | Sync employees from Keka HR |
+| GET | `/api/me` | Get current user (from session) |
+| POST | `/api/auth/select-user` | Set current user (simple dropdown auth) |
+
+**Database migration and seeding**:
+- Create `db/migrate.js` that runs the schema above
+- Create `db/seed.js` that inserts the seed data from `seed-data.js` (users, campaigns, requests, deliverables)
+- Add npm scripts: `npm run db:migrate` and `npm run db:seed`
+- On server startup, auto-run migration if tables don't exist
+
+---
+
+### Phase 2: Rewrite storage-client.js
+
+Replace the localStorage-based `SupabaseClient` with an API client. **Keep the exact same public method names and signatures** so `data-service.js` and `app.js` don't need changes.
+
+Key methods to rewrite:
+- `loadAll()` - now calls `GET /api/load-all`
+- `insertRequest(data)` - calls `POST /api/requests`
+- `updateRequestField(id, field, value)` - calls `PATCH /api/requests/:id`
+- `deleteRequest(id)` - calls `DELETE /api/requests/:id`
+- `addComment(requestId, userId, text)` - calls `POST /api/requests/:id/comments`
+- `insertCampaign(data)` - calls `POST /api/campaigns`
+- `updateCampaignField(id, field, value)` - calls `PATCH /api/campaigns/:id`
+- `assignDeliverable(requestId, deliverableId, userId)` - calls `POST /api/deliverables/:id/assign`
+- All timesheet, knowledge, and content-schedule methods similarly
+
+Keep the export/import JSON functionality as a backup option in Settings.
+
+---
+
+### Phase 3: Simple User Selection (No Password Auth)
+
+This is an internal tool. Instead of full login:
+- On first visit, show a user selection screen: "Who are you?" with a dropdown of all team members
+- Store selected user ID in an `express-session` cookie
+- All API calls include this session, server uses it for `created_by`, comment attribution, etc.
+- Show the current user's name and avatar in the sidebar
+- Add a "Switch User" option in Settings
+
+---
+
+### Phase 4: Keka HR Integration
+
+**Authentication**: Keka uses OAuth 2.0 with a custom grant type.
+```
+POST https://{KEKA_COMPANY}.keka.com/connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=kekaapi
+scope=kekaapi
+client_id={KEKA_CLIENT_ID}
+client_secret={KEKA_CLIENT_SECRET}
+api_key={KEKA_API_KEY}
+```
+
+Response: `{ "access_token": "...", "expires_in": 3600, "token_type": "Bearer" }`
+
+**Get employees**:
+```
+GET https://{KEKA_COMPANY}.keka.com/api/v1/hris/employees
+Authorization: Bearer {access_token}
+```
+
+Response includes: `displayName`, `firstName`, `lastName`, `email`, `employeeNumber`, `department.name`, `jobTitle.name`, `isActive`
+
+**Build**:
+- `services/keka.js` - Keka API client with token caching (tokens expire in 1 hour)
+- `POST /api/keka/sync` endpoint that:
+  1. Fetches all employees from Keka (paginate with pageNumber/pageSize, default 100)
+  2. Filters to @hoichoi.tv and @svf.in emails only
+  3. Upserts into users table (match by email, store keka employee ID as keka_id)
+  4. Maps Keka department/job title to the app's role system (designer, video_editor, requester, etc.) - or defaults to 'requester'
+  5. Returns sync summary (added, updated, skipped counts)
+- Rate limit: 50 requests/minute. Add a delay between paginated calls.
+- Add a "Sync from Keka" button in the Settings view
+- If Keka credentials are not configured (env vars empty), hide the sync button and skip gracefully
+
+Environment variables:
+```
+KEKA_COMPANY=placeholder
+KEKA_CLIENT_ID=placeholder
+KEKA_CLIENT_SECRET=placeholder
+KEKA_API_KEY=placeholder
+```
+
+---
+
+### Phase 5: Email Notifications via Microsoft Graph API
+
+**IMPORTANT**: Do NOT use SMTP/Nodemailer. Microsoft deprecated Basic Auth for SMTP on March 1, 2026. Use Microsoft Graph API with OAuth 2.0 client credentials flow instead.
+
+**Azure AD App Registration needed** (I will do this later):
+- Application permission: `Mail.Send` (Application, not Delegated)
+- Admin consent granted for the tenant
+
+**Token endpoint**:
+```
+POST https://login.microsoftonline.com/{AZURE_TENANT_ID}/oauth2/v2.0/token
+Content-Type: application/x-www-form-urlencoded
+
+client_id={AZURE_CLIENT_ID}
+client_secret={AZURE_CLIENT_SECRET}
+scope=https://graph.microsoft.com/.default
+grant_type=client_credentials
+```
+
+**Send mail endpoint**:
+```
+POST https://graph.microsoft.com/v1.0/users/{MAIL_FROM}/sendMail
+Authorization: Bearer {access_token}
+Content-Type: application/json
+
+{
+  "message": {
+    "subject": "...",
+    "body": { "contentType": "HTML", "content": "..." },
+    "toRecipients": [{ "emailAddress": { "address": "user@hoichoi.tv", "name": "User Name" } }]
+  },
+  "saveToSentItems": false
+}
+```
+
+**Build**:
+- `services/email.js` - Microsoft Graph email client with:
+  - Token caching (expires_in ~3599 seconds, refresh 5 minutes before expiry)
+  - `sendMail(to, subject, htmlBody)` method (accepts array of recipients)
+  - Graceful failure: if env vars are missing or token fails, log warning and skip (don't crash the app)
+  - All email sending is async, fire-and-forget (don't block API responses)
+
+- `services/email-templates.js` - HTML email templates:
+  - Use inline CSS (email clients strip <style> tags)
+  - Dark theme matching the app: background #0a0f14, card background #111827, text #e2e8f0, accent #2dd4bf
+  - Hoichoi teal CTA button linking to the request in the app
+  - Mobile-responsive (max-width: 600px)
+  - Templates for:
+
+  **a) Task Assignment**
+  - Trigger: When `POST /api/requests/:id/assign` or `POST /api/deliverables/:id/assign` is called
+  - To: assignee's email
+  - Subject: `[CreativeOps] New task assigned: {request title}`
+  - Body: request title, campaign name, asset type, priority badge, deadline, brief summary, CTA button "View Task"
+
+  **b) Status Change**
+  - Trigger: When `POST /api/requests/:id/status` is called
+  - To: assignee + requester (created_by)
+  - Subject: `[CreativeOps] Status update: {title} >> {new status}`
+  - Body: old status >> new status with visual indicator, request details, CTA button
+
+  **c) New Comment**
+  - Trigger: When `POST /api/requests/:id/comments` is called
+  - To: all participants (assignee + requester + previous commenters), excluding the commenter
+  - Subject: `[CreativeOps] New comment on: {title}`
+  - Body: commenter name, comment text preview, request context, CTA button "Reply"
+
+  **d) Approval Decision**
+  - Trigger: When status changes to `final_approved` or gets sent back (status regression)
+  - To: assignee
+  - Subject: `[CreativeOps] Approved: {title}` or `[CreativeOps] Changes needed: {title}`
+  - Body: approver name, any comment, next steps, CTA button
+
+Environment variables:
+```
+AZURE_TENANT_ID=placeholder
+AZURE_CLIENT_ID=placeholder
+AZURE_CLIENT_SECRET=placeholder
+MAIL_FROM=creativeops@hoichoi.tv
+APP_URL=https://your-replit-url.repl.co
+```
+
+---
+
+### Phase 6: Wire Up Notifications in API Routes
+
+In the API route handlers, after the database operation succeeds, fire the email notification asynchronously:
+
+```js
+// Example: in the assign endpoint
+router.post('/api/requests/:id/assign', async (req, res) => {
+  // 1. Update database
+  // 2. Log activity
+  // 3. Send response to client immediately
+  res.json({ success: true, data: updatedRequest });
+  // 4. Fire email async (don't await, don't block)
+  emailService.sendAssignmentNotification(updatedRequest, assignee).catch(err => {
+    console.error('Email notification failed:', err.message);
+  });
+});
+```
+
+---
+
+## File Structure
+
+```
+/
+  server.js              # Express server: static files + API routes + session
+  db/
+    migrate.js           # Schema creation (auto-runs on first boot)
+    seed.js              # Seed data insertion
+  services/
+    keka.js              # Keka HR API client (token cache + employee sync)
+    email.js             # Microsoft Graph API email client (token cache + sendMail)
+    email-templates.js   # HTML email template functions
+  public/
+    index.html           # (unchanged)
+    app.js               # (unchanged)
+    style.css            # (unchanged)
+    data-service.js      # (unchanged)
+    seed-data.js         # (unchanged)
+    storage-client.js    # REWRITTEN: localStorage >> fetch('/api/...')
+  .env.example           # All required environment variables with descriptions
+  .env                   # Actual values (gitignored)
+  package.json
+  .gitignore
+```
+
+---
+
+## .env.example (create this file)
+
+```bash
+# ── Database ──────────────────────────────────────────
+# PostgreSQL connection string (auto-set by Replit if using built-in DB)
+DATABASE_URL=postgresql://user:password@host:5432/dbname
+
+# ── App ───────────────────────────────────────────────
+PORT=3000
+NODE_ENV=development
+SESSION_SECRET=replace-with-random-string
+APP_URL=https://your-replit-url.repl.co
+
+# ── Keka HR API ───────────────────────────────────────
+# Get these from Keka Admin > Settings > API
+KEKA_COMPANY=hoichoi
+KEKA_CLIENT_ID=
+KEKA_CLIENT_SECRET=
+KEKA_API_KEY=
+
+# ── Microsoft Graph API (Email) ───────────────────────
+# Azure Portal > Entra ID > App Registrations > Your App
+# Required permission: Mail.Send (Application) with admin consent
+AZURE_TENANT_ID=
+AZURE_CLIENT_ID=
+AZURE_CLIENT_SECRET=
+MAIL_FROM=creativeops@hoichoi.tv
+```
+
+---
+
+## Critical Constraints
+
+1. **Do NOT modify app.js, style.css, data-service.js, or index.html.** The only frontend file that changes is `storage-client.js`.
+2. **storage-client.js must keep the same public API** (method names, arguments, return shapes). It is called by data-service.js which is called by app.js. Changing the interface breaks the whole app.
+3. **No TypeScript, no bundler, no build step.** Plain Node.js + Express. CommonJS `require()` everywhere.
+4. **Use `pg` package directly** for PostgreSQL. No Sequelize, no Knex, no Prisma.
+5. **All external API calls (Keka, Microsoft Graph) must fail gracefully.** If credentials are missing or API is down, log a warning and continue. The app must work without Keka or email configured.
+6. **Emails are fire-and-forget.** Never block an API response waiting for email to send.
+7. **Use `express-session` with a simple memory store** (fine for internal tool with <20 users).
+8. **Seed data from seed-data.js should be used for initial database population** so the app has data on first boot.
+
+---
+
+## Build Order
+
+1. `package.json` with dependencies: express, pg, express-session, dotenv, node-fetch (or use built-in fetch if Node 18+)
+2. `.env.example` with all variables documented
+3. `db/migrate.js` - create all tables
+4. `db/seed.js` - insert seed data
+5. `server.js` - Express server with all API routes, auto-migration on boot, static file serving from /public
+6. `public/storage-client.js` - rewrite to use fetch('/api/...')
+7. `services/keka.js` - Keka API client
+8. `services/email.js` - Microsoft Graph email client
+9. `services/email-templates.js` - HTML email templates
+10. Wire up email triggers in the API route handlers
+11. Test that the app boots and renders correctly with seed data
+
+Start building now. Create all files. I will provide the actual API credentials after everything is built.
+
+---
