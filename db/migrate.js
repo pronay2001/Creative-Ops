@@ -141,6 +141,55 @@ ALTER TABLE knowledge_entries ADD COLUMN IF NOT EXISTS reference TEXT;
 ALTER TABLE content_schedule ADD COLUMN IF NOT EXISTS linked_request_id TEXT;
 ALTER TABLE content_schedule ADD COLUMN IF NOT EXISTS platforms TEXT[] DEFAULT '{}';
 ALTER TABLE content_schedule ADD COLUMN IF NOT EXISTS created_by TEXT;
+
+CREATE TABLE IF NOT EXISTS timesheet_clock (
+  id SERIAL PRIMARY KEY,
+  user_id TEXT REFERENCES users(id) NOT NULL,
+  request_id TEXT REFERENCES requests(id),
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at TIMESTAMPTZ,
+  duration_minutes NUMERIC(6,2),
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+`;
+
+const assetTypeMigration = `
+UPDATE requests SET asset_type_id = 'scene_cutdown' WHERE asset_type_id = 'repurpose_reel';
+UPDATE requests SET asset_type_id = 'teaser_first_look' WHERE asset_type_id = 'teaser_trailer';
+UPDATE requests SET asset_type_id = 'hoichoi_brand_promo' WHERE asset_type_id = 'brand_promo';
+UPDATE requests SET asset_type_id = 'branded_content_episode' WHERE asset_type_id = 'brand_episode_promo';
+UPDATE requests SET asset_type_id = 'prebuzz_phase_ads' WHERE asset_type_id = 'prebuzz';
+UPDATE requests SET asset_type_id = 'promo_phase_ads' WHERE asset_type_id = 'promo_video';
+UPDATE requests SET asset_type_id = 'sustenance_phase_ads' WHERE asset_type_id = 'combined_ads';
+UPDATE requests SET asset_type_id = 'library_content_ads' WHERE asset_type_id = 'scene_based_ads';
+UPDATE requests SET asset_type_id = 'teaser_trailer_repackage' WHERE asset_type_id = 'trailer_repackages';
+UPDATE requests SET asset_type_id = 'whatsapp_crm_video' WHERE asset_type_id = 'crm_promos';
+UPDATE requests SET asset_type_id = 'teaser_first_look_thumb' WHERE asset_type_id = 'teaser_trailer_thumb';
+UPDATE requests SET asset_type_id = 'ancillary_content_thumb' WHERE asset_type_id = 'promo_thumbnail';
+UPDATE requests SET asset_type_id = 'super_cards_ext_influencers' WHERE asset_type_id = 'thumb_ext_influencers';
+UPDATE requests SET asset_type_id = 'whatsapp_crm_static' WHERE asset_type_id = 'crm_static';
+UPDATE requests SET asset_type_id = 'cms_thumbnail_refresh' WHERE asset_type_id = 'cms_thumbnail';
+UPDATE requests SET asset_type_id = 'sm_episode_thumbnail' WHERE asset_type_id = 'episode_thumbnail';
+UPDATE requests SET asset_type_id = 'cms_thumbnail_refresh' WHERE asset_type_id = 'cms_maintenance';
+
+UPDATE deliverables SET asset_type_id = 'scene_cutdown' WHERE asset_type_id = 'repurpose_reel';
+UPDATE deliverables SET asset_type_id = 'teaser_first_look' WHERE asset_type_id = 'teaser_trailer';
+UPDATE deliverables SET asset_type_id = 'hoichoi_brand_promo' WHERE asset_type_id = 'brand_promo';
+UPDATE deliverables SET asset_type_id = 'branded_content_episode' WHERE asset_type_id = 'brand_episode_promo';
+UPDATE deliverables SET asset_type_id = 'prebuzz_phase_ads' WHERE asset_type_id = 'prebuzz';
+UPDATE deliverables SET asset_type_id = 'promo_phase_ads' WHERE asset_type_id = 'promo_video';
+UPDATE deliverables SET asset_type_id = 'sustenance_phase_ads' WHERE asset_type_id = 'combined_ads';
+UPDATE deliverables SET asset_type_id = 'library_content_ads' WHERE asset_type_id = 'scene_based_ads';
+UPDATE deliverables SET asset_type_id = 'teaser_trailer_repackage' WHERE asset_type_id = 'trailer_repackages';
+UPDATE deliverables SET asset_type_id = 'whatsapp_crm_video' WHERE asset_type_id = 'crm_promos';
+UPDATE deliverables SET asset_type_id = 'teaser_first_look_thumb' WHERE asset_type_id = 'teaser_trailer_thumb';
+UPDATE deliverables SET asset_type_id = 'ancillary_content_thumb' WHERE asset_type_id = 'promo_thumbnail';
+UPDATE deliverables SET asset_type_id = 'super_cards_ext_influencers' WHERE asset_type_id = 'thumb_ext_influencers';
+UPDATE deliverables SET asset_type_id = 'whatsapp_crm_static' WHERE asset_type_id = 'crm_static';
+UPDATE deliverables SET asset_type_id = 'cms_thumbnail_refresh' WHERE asset_type_id = 'cms_thumbnail';
+UPDATE deliverables SET asset_type_id = 'sm_episode_thumbnail' WHERE asset_type_id = 'episode_thumbnail';
+UPDATE deliverables SET asset_type_id = 'cms_thumbnail_refresh' WHERE asset_type_id = 'cms_maintenance';
 `;
 
 async function migrate() {
@@ -148,6 +197,7 @@ async function migrate() {
   try {
     await pool.query(schema);
     await pool.query(alterations);
+    await pool.query(assetTypeMigration);
     await pool.query(seedUsers);
     console.log('[migrate] Schema created successfully');
   } catch (err) {

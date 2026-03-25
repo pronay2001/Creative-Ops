@@ -781,6 +781,178 @@ app.post('/api/timesheet', async (req, res) => {
   }
 });
 
+// ── Timesheet Clock (Start/Shift/Resume/End) ──────────
+
+app.get('/api/timesheet/clock-status', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM timesheet_clock WHERE user_id = $1 AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1`,
+      [req.session.userId]
+    );
+    if (result.rows[0]) {
+      const entry = result.rows[0];
+      const elapsedMs = Date.now() - new Date(entry.started_at).getTime();
+      res.json({
+        isRunning: true,
+        currentEntry: entry,
+        requestId: entry.request_id,
+        startedAt: entry.started_at,
+        elapsedMinutes: Math.round((elapsedMs / 60000) * 100) / 100,
+      });
+    } else {
+      res.json({ isRunning: false, currentEntry: null, requestId: null, startedAt: null, elapsedMinutes: 0 });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+async function endRunningClock(client, userId) {
+  const running = await client.query(
+    `SELECT * FROM timesheet_clock WHERE user_id = $1 AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1 FOR UPDATE`,
+    [userId]
+  );
+  if (!running.rows[0]) return null;
+  const entry = running.rows[0];
+  const endedAt = new Date();
+  const durationMs = endedAt.getTime() - new Date(entry.started_at).getTime();
+  const durationMinutes = Math.round((durationMs / 60000) * 100) / 100;
+  await client.query(
+    `UPDATE timesheet_clock SET ended_at = $1, duration_minutes = $2 WHERE id = $3`,
+    [endedAt, durationMinutes, entry.id]
+  );
+  const hours = Math.round((durationMinutes / 60) * 2) / 2;
+  if (hours > 0 && entry.request_id) {
+    const today = endedAt.toISOString().slice(0, 10);
+    await client.query(
+      `INSERT INTO timesheet_entries (user_id, request_id, date, hours, notes)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [userId, entry.request_id, today, hours, `Auto-logged from clock (${Math.round(durationMinutes)}min)`]
+    );
+  }
+  return { ...entry, ended_at: endedAt, duration_minutes: durationMinutes };
+}
+
+app.post('/api/timesheet/clock-start', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { requestId } = req.body;
+    if (!requestId) return res.status(400).json({ error: 'requestId is required' });
+    const reqExists = await client.query('SELECT id FROM requests WHERE id = $1', [requestId]);
+    if (!reqExists.rows[0]) return res.status(400).json({ error: 'Request not found' });
+    await client.query('BEGIN');
+    await endRunningClock(client, req.session.userId);
+    const result = await client.query(
+      `INSERT INTO timesheet_clock (user_id, request_id, started_at) VALUES ($1, $2, NOW()) RETURNING *`,
+      [req.session.userId, requestId]
+    );
+    await client.query('COMMIT');
+    res.json(result.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/timesheet/clock-shift', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { requestId } = req.body;
+    if (!requestId) return res.status(400).json({ error: 'requestId is required' });
+    const reqExists = await client.query('SELECT id FROM requests WHERE id = $1', [requestId]);
+    if (!reqExists.rows[0]) return res.status(400).json({ error: 'Request not found' });
+    await client.query('BEGIN');
+    const ended = await endRunningClock(client, req.session.userId);
+    const result = await client.query(
+      `INSERT INTO timesheet_clock (user_id, request_id, started_at) VALUES ($1, $2, NOW()) RETURNING *`,
+      [req.session.userId, requestId]
+    );
+    await client.query('COMMIT');
+    res.json({ ended, started: result.rows[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/timesheet/clock-resume', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { requestId } = req.body;
+    if (!requestId) return res.status(400).json({ error: 'requestId is required' });
+    const reqExists = await client.query('SELECT id FROM requests WHERE id = $1', [requestId]);
+    if (!reqExists.rows[0]) return res.status(400).json({ error: 'Request not found' });
+    await client.query('BEGIN');
+    await endRunningClock(client, req.session.userId);
+    const result = await client.query(
+      `INSERT INTO timesheet_clock (user_id, request_id, started_at) VALUES ($1, $2, NOW()) RETURNING *`,
+      [req.session.userId, requestId]
+    );
+    await client.query('COMMIT');
+    res.json(result.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/timesheet/clock-end', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const ended = await endRunningClock(client, req.session.userId);
+    if (!ended) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'No running clock entry found' }); }
+    await client.query('COMMIT');
+    res.json(ended);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/timesheet/clock-reassign', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const user = await getSessionUser(req);
+    if (!user || !LEAD_ROLES.includes(user.role)) {
+      return res.status(403).json({ error: 'Only creative leads can reassign clock entries' });
+    }
+    const { clockEntryId, newUserId } = req.body;
+    if (!clockEntryId || !newUserId) return res.status(400).json({ error: 'clockEntryId and newUserId are required' });
+    const targetUser = await client.query('SELECT id FROM users WHERE id = $1', [newUserId]);
+    if (!targetUser.rows[0]) return res.status(404).json({ error: 'Target user not found' });
+    await client.query('BEGIN');
+    const entry = await client.query('SELECT * FROM timesheet_clock WHERE id = $1 FOR UPDATE', [clockEntryId]);
+    if (!entry.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Clock entry not found' }); }
+    const oldUserId = entry.rows[0].user_id;
+    const result = await client.query(
+      `UPDATE timesheet_clock SET user_id = $1 WHERE id = $2 RETURNING *`,
+      [newUserId, clockEntryId]
+    );
+    if (entry.rows[0].ended_at && entry.rows[0].request_id) {
+      await client.query(
+        `UPDATE timesheet_entries SET user_id = $1 WHERE user_id = $2 AND request_id = $3 AND date = $4::date`,
+        [newUserId, oldUserId, entry.rows[0].request_id, entry.rows[0].ended_at]
+      );
+    }
+    await client.query('COMMIT');
+    res.json(result.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ── Knowledge Base ─────────────────────────────────────
 
 app.get('/api/campaigns/:id/knowledge', async (req, res) => {

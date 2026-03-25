@@ -81,7 +81,10 @@ See `.env.example` for full list. Key ones:
 - `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `MAIL_FROM` - Email
 
 ### Database
-PostgreSQL with tables: users, campaigns, requests, deliverables, comments, activity_log, timesheet_entries, knowledge_entries, content_schedule. Schema auto-migrates on server start.
+PostgreSQL with tables: users, campaigns, requests, deliverables, comments, activity_log, timesheet_entries, timesheet_clock, knowledge_entries, content_schedule. Schema auto-migrates on server start.
+- `requests.vertical` TEXT column stores vertical (hoichoi, SVF, etc.)
+- `timesheet_clock` tracks clock-in/clock-out entries with start/end times, duration, auto-sync to timesheet_entries
+- Asset type ID migration in migrate.js maps old IDs to new taxonomy (e.g. repurpose_reel→scene_cutdown)
 
 ### Port
 App runs on port 5000 (required for Replit webview).

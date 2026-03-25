@@ -1,0 +1,102 @@
+## CreativeOps: Ensure Backend Supports Verticals, Asset Taxonomy & Timesheet CTAs
+
+The frontend (app.js and seed-data.js) already has these features implemented. This prompt ensures the backend schema, API, and data layer properly support them.
+
+---
+
+### 1. Vertical Field Support
+
+The `requests` table needs a `vertical` column. Ensure the schema includes:
+
+```sql
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS vertical TEXT;
+```
+
+The `POST /api/requests` and `PATCH /api/requests/:id` endpoints must accept and store the `vertical` field.
+
+The `GET /api/load-all` response must include the `vertical` field on each request object.
+
+The verticals list is static (defined in seed-data.js, not stored in DB):
+- hoichoi, hoichoi Studios, hoichoi TV+, hoichoi FM, Sooper, Sooper FM, LoglineAI, SVF
+
+---
+
+### 2. Asset Type Taxonomy (Three Categories)
+
+The asset types are defined in `seed-data.js` with three categories: `video`, `static`, and `motion`. These are static config, not stored in the database. But the `requests` and `deliverables` tables store `asset_type_id` which references these IDs.
+
+Ensure:
+- The `asset_type_id` field on requests and deliverables is a TEXT field (not a foreign key to any asset_types table)
+- The seed data in `db/seed.js` uses the correct asset type IDs from `seed-data.js`
+- Any existing requests referencing old/removed asset type IDs (like `episode_thumbnail`, `cms_maintenance`, `repurpose_reel`, `teaser_trailer`, `prebuzz`, `promo_video`, `combined_ads`, `scene_based_ads`, `crm_static`, `cms_thumbnail`, `brand_promo`, `brand_episode_promo`, `trailer_repackages`, `crm_promos`, `promo_thumbnail`, `thumb_ext_influencers`) should be migrated to their new equivalents:
+
+| Old ID | New ID |
+|--------|--------|
+| `repurpose_reel` | `scene_cutdown` |
+| `teaser_trailer` | `teaser_first_look` (or `trailer` depending on context) |
+| `brand_promo` | `hoichoi_brand_promo` |
+| `brand_episode_promo` | `branded_content_episode` |
+| `prebuzz` | `prebuzz_phase_ads` |
+| `promo_video` | `promo_phase_ads` |
+| `combined_ads` | `sustenance_phase_ads` |
+| `scene_based_ads` | `library_content_ads` |
+| `trailer_repackages` | `teaser_trailer_repackage` |
+| `crm_promos` | `whatsapp_crm_video` |
+| `teaser_trailer_thumb` | `teaser_first_look_thumb` |
+| `promo_thumbnail` | `ancillary_content_thumb` |
+| `thumb_ext_influencers` | `super_cards_ext_influencers` |
+| `crm_static` | `whatsapp_crm_static` |
+| `cms_thumbnail` | `cms_thumbnail_refresh` |
+| `episode_thumbnail` | `sm_episode_thumbnail` |
+| `cms_maintenance` | (removed, migrate to `cms_thumbnail_refresh`) |
+
+Add this migration to `db/migrate.js` so old data gets updated.
+
+---
+
+### 3. Timesheet CTA (Clock-In/Clock-Out) Backend Support
+
+The frontend has Start / Shift Job / Start Again / End buttons for time tracking. The backend needs to support this clock-based workflow.
+
+Add a `timesheet_clock` table:
+
+```sql
+CREATE TABLE IF NOT EXISTS timesheet_clock (
+  id SERIAL PRIMARY KEY,
+  user_id TEXT REFERENCES users(id) NOT NULL,
+  request_id TEXT REFERENCES requests(id),
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at TIMESTAMPTZ,
+  duration_minutes NUMERIC(6,2),
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+Add these API endpoints:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/timesheet/clock-start` | Start tracking. Body: `{ requestId }`. Creates a new clock entry with `started_at = NOW()`. If there's already a running clock for this user, auto-end it first. |
+| POST | `/api/timesheet/clock-shift` | Shift to new task. Body: `{ requestId }`. Ends current clock entry and starts a new one for the new request. |
+| POST | `/api/timesheet/clock-resume` | Resume after break. Body: `{ requestId }`. Same as clock-start but explicitly for resuming. |
+| POST | `/api/timesheet/clock-end` | End tracking. Ends the current running clock entry, calculates `duration_minutes` from `started_at` to now. |
+| GET | `/api/timesheet/clock-status` | Get current clock state for the logged-in user. Returns: `{ isRunning, currentEntry, requestId, startedAt, elapsedMinutes }` |
+| POST | `/api/timesheet/clock-reassign` | Manager only. Body: `{ clockEntryId, newUserId }`. Reassign a clock entry to a different user. Only allowed for `creative_lead` role. |
+
+The clock-end action should also auto-create a corresponding entry in the `timesheet_entries` table (the existing manual hour-logging table) so everything stays in sync.
+
+---
+
+### 4. Seed Data Alignment
+
+When running `db/seed.js`, ensure:
+- All request records use the NEW asset type IDs (not old ones)
+- The `vertical` field is populated on seed requests (default to `'hoichoi'` if not specified)
+- Deliverable records also use new asset type IDs
+
+If any seed request references an asset type ID that doesn't exist in `seed-data.js`, map it to the closest new equivalent using the table above.
+
+---
+
+Build these changes into the existing backend. Don't modify the frontend files (app.js, style.css, seed-data.js) as they already have these features implemented.
