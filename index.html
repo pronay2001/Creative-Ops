@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<!--
+   ______                            __
+  / ____/___  ____ ___  ____  __  __/ /____  _____
+ / /   / __ \/ __ `__ \/ __ \/ / / / __/ _ \/ ___/
+/ /___/ /_/ / / / / / / /_/ / /_/ / /_/  __/ /
+\____/\____/_/ /_/ /_/ .___/\__,_/\__/\___/_/
+                    /_/
+        Hoichoi CreativeOps
+-->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hoichoi CreativeOps</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d9488'/%3E%3Cpath d='M8 10h6v12H8V10zm10 0h6v12h-6V10z' fill='white' opacity='0.9'/%3E%3Cpath d='M14 14h4v4h-4v-4z' fill='white'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body style="background:#0a0f14;color:#e2e8f0;margin:0">
+
+<div id="bootLoader" style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:Inter,system-ui,sans-serif;font-size:14px;color:#94a3b8;gap:10px">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93"/></svg>
+  Loading CreativeOps…
+</div>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
+<div class="app-layout" id="appLayout" style="display:none">
+
+  <!-- MOBILE OVERLAY -->
+  <div class="mobile-overlay" id="mobileOverlay" onclick="App.closeMobileSidebar()"></div>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="CreativeOps logo">
+          <rect width="32" height="32" rx="8" fill="currentColor" style="color: var(--color-primary);"/>
+          <path d="M8 10h6v12H8V10zm10 0h6v12h-6V10z" fill="var(--color-text-inverse)" opacity="0.9"/>
+          <path d="M14 14h4v4h-4v-4z" fill="var(--color-text-inverse)"/>
+        </svg>
+        <span class="sidebar-logo-text">CreativeOps</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav" id="sidebarNav">
+      <button class="sidebar-nav-item active" data-route="dashboard" data-tooltip="Dashboard" onclick="App.navigate('dashboard')">
+        <i data-lucide="layout-dashboard"></i>
+        <span class="sidebar-nav-label">Dashboard</span>
+      </button>
+      <button class="sidebar-nav-item" data-route="campaigns" data-tooltip="Campaigns" onclick="App.navigate('campaigns')">
+        <i data-lucide="megaphone"></i>
+        <span class="sidebar-nav-label">Campaigns</span>
+      </button>
+      <button class="sidebar-nav-item" data-route="requests" data-tooltip="Requests" onclick="App.navigate('requests')">
+        <i data-lucide="file-text"></i>
+        <span class="sidebar-nav-label">Requests</span>
+      </button>
+      <button class="sidebar-nav-item" data-route="calendar" data-tooltip="Calendar" onclick="App.navigate('calendar')">
+        <i data-lucide="calendar"></i>
+        <span class="sidebar-nav-label">Calendar</span>
+      </button>
+      <button class="sidebar-nav-item" data-route="kanban" data-tooltip="Kanban Board" onclick="App.navigate('kanban')">
+        <i data-lucide="kanban"></i>
+        <span class="sidebar-nav-label">Kanban Board</span>
+      </button>
+      <button class="sidebar-nav-item" data-route="workload" data-tooltip="Workload" onclick="App.navigate('workload')">
+        <i data-lucide="users"></i>
+        <span class="sidebar-nav-label">Workload</span>
+      </button>
+      <button class="sidebar-nav-item" data-route="creative_team" data-tooltip="Creative Team" onclick="App.navigate('creative_team')">
+        <i data-lucide="palette"></i>
+        <span class="sidebar-nav-label">Creative Team</span>
+      </button>
+      <button class="sidebar-nav-item" data-route="assets" data-tooltip="Assets" onclick="App.navigate('assets')">
+        <i data-lucide="folder"></i>
+        <span class="sidebar-nav-label">Assets</span>
+      </button>
+      <button class="sidebar-nav-item" data-route="timesheet" data-tooltip="Timesheet" onclick="App.navigate('timesheet')">
+        <i data-lucide="clock"></i>
+        <span class="sidebar-nav-label">Timesheet</span>
+      </button>
+      <button class="sidebar-nav-item" data-route="settings" data-tooltip="Settings" onclick="App.navigate('settings')">
+        <i data-lucide="settings"></i>
+        <span class="sidebar-nav-label">Settings</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="sidebar-collapse-btn" onclick="App.toggleSidebar()" aria-label="Toggle sidebar">
+        <i data-lucide="panel-left-close" id="collapseIcon"></i>
+        <span class="sidebar-collapse-label sidebar-nav-label">Collapse</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="hamburger-btn" onclick="App.toggleMobileSidebar()" aria-label="Open menu">
+        <i data-lucide="menu"></i>
+      </button>
+      <h1 class="topbar-title" id="topbarTitle">Dashboard</h1>
+    </div>
+    <div class="topbar-right">
+      <button class="topbar-btn" aria-label="Search" onclick="App.focusSearch()">
+        <i data-lucide="search"></i>
+      </button>
+      <button class="topbar-btn" aria-label="Notifications" style="position:relative;" onclick="App.toggleNotifications()">
+        <i data-lucide="bell"></i>
+        <span class="notification-count" id="notifCount" style="display:none">0</span>
+      </button>
+      <button class="topbar-btn" data-theme-toggle aria-label="Toggle dark mode" onclick="App.toggleTheme()">
+        <i data-lucide="moon" id="themeIcon"></i>
+      </button>
+      <div class="topbar-avatar" title="Pronay Mukherjee">PM</div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content" id="mainContent">
+    <div id="viewContainer"></div>
+  </main>
+
+</div>
+
+<!-- DETAIL PANEL -->
+<div class="panel-overlay" id="panelOverlay" onclick="App.closeDetailPanel()"></div>
+<div class="detail-panel" id="detailPanel">
+  <div class="panel-header">
+    <h2 id="panelTitle">Request Detail</h2>
+    <button class="panel-close" onclick="App.closeDetailPanel()" aria-label="Close panel">
+      <i data-lucide="x"></i>
+    </button>
+  </div>
+  <div class="panel-body" id="panelBody"></div>
+</div>
+
+<!-- NEW REQUEST MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modalTitle">New Request</h2>
+      <button class="panel-close" onclick="App.closeModal()" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-footer" id="modalFooter">
+      <button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="modalSubmit" onclick="App.submitModal()">Create Request</button>
+    </div>
+  </div>
+</div>
+
+<!-- NOTIFICATIONS PANEL -->
+<div class="notifications-panel" id="notificationsPanel">
+  <div class="notifications-header">
+    <h3>Notifications</h3>
+    <div style="display:flex;gap:var(--space-2)">
+      <button class="btn btn-ghost btn-sm" onclick="App.markAllNotificationsRead()" style="font-size:11px">Mark all read</button>
+      <button class="panel-close" onclick="App.closeNotifications()" aria-label="Close"><i data-lucide="x"></i></button>
+    </div>
+  </div>
+  <div class="notifications-body" id="notificationsBody"></div>
+</div>
+
+<!-- KEYBOARD SHORTCUTS MODAL -->
+<div class="shortcuts-modal-overlay" id="shortcutsOverlay" onclick="if(event.target===this)App.closeShortcuts()">
+  <div class="shortcuts-modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-4)">
+      <h2 style="margin:0">Keyboard Shortcuts</h2>
+      <button class="panel-close" onclick="App.closeShortcuts()" aria-label="Close"><i data-lucide="x"></i></button>
+    </div>
+    <div class="shortcut-group">
+      <div class="shortcut-group-title">Navigation</div>
+      <div class="shortcut-row"><span>Dashboard</span><div class="shortcut-keys"><kbd>G</kbd><kbd>D</kbd></div></div>
+      <div class="shortcut-row"><span>Campaigns</span><div class="shortcut-keys"><kbd>G</kbd><kbd>C</kbd></div></div>
+      <div class="shortcut-row"><span>Requests</span><div class="shortcut-keys"><kbd>G</kbd><kbd>R</kbd></div></div>
+      <div class="shortcut-row"><span>Kanban Board</span><div class="shortcut-keys"><kbd>G</kbd><kbd>K</kbd></div></div>
+      <div class="shortcut-row"><span>Workload</span><div class="shortcut-keys"><kbd>G</kbd><kbd>W</kbd></div></div>
+      <div class="shortcut-row"><span>Calendar</span><div class="shortcut-keys"><kbd>G</kbd><kbd>L</kbd></div></div>
+      <div class="shortcut-row"><span>Assets</span><div class="shortcut-keys"><kbd>G</kbd><kbd>A</kbd></div></div>
+      <div class="shortcut-row"><span>Timesheet</span><div class="shortcut-keys"><kbd>G</kbd><kbd>T</kbd></div></div>
+    </div>
+    <div class="shortcut-group">
+      <div class="shortcut-group-title">Actions</div>
+      <div class="shortcut-row"><span>New request</span><div class="shortcut-keys"><kbd>N</kbd></div></div>
+      <div class="shortcut-row"><span>Search</span><div class="shortcut-keys"><kbd>⌘</kbd><kbd>K</kbd></div></div>
+      <div class="shortcut-row"><span>Close panel / modal</span><div class="shortcut-keys"><kbd>Esc</kbd></div></div>
+    </div>
+    <div class="shortcut-group">
+      <div class="shortcut-group-title">Table / List</div>
+      <div class="shortcut-row"><span>Navigate rows</span><div class="shortcut-keys"><kbd>↑</kbd><kbd>↓</kbd></div></div>
+      <div class="shortcut-row"><span>Open selected</span><div class="shortcut-keys"><kbd>Enter</kbd></div></div>
+    </div>
+    <div class="shortcut-group">
+      <div class="shortcut-group-title">Help</div>
+      <div class="shortcut-row"><span>Show shortcuts</span><div class="shortcut-keys"><kbd>?</kbd></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- SEARCH / COMMAND PALETTE -->
+<div class="cmd-palette-overlay" id="cmdPaletteOverlay">
+  <div class="cmd-palette">
+    <div class="cmd-palette-header">
+      <i data-lucide="search" class="cmd-palette-icon"></i>
+      <input class="cmd-palette-input" id="cmdPaletteInput" placeholder="Search requests, campaigns..." autocomplete="off">
+      <kbd class="cmd-palette-kbd">ESC</kbd>
+    </div>
+    <div class="cmd-palette-results" id="cmdPaletteResults"></div>
+  </div>
+</div>
+
+<!-- ERROR HANDLER -->
+<script>
+window.__errors = [];
+window.onerror = function(msg, url, line, col, err) {
+  window.__errors.push({msg, url, line, col, stack: err && err.stack});
+  var el = document.getElementById('errorOverlay');
+  if (!el) { el = document.createElement('div'); el.id = 'errorOverlay'; el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:30vh;overflow:auto;background:#1a0000;color:#ff6b6b;padding:12px 16px;font:12px/1.5 monospace;z-index:99999;border-top:2px solid #ff4444;'; document.body.appendChild(el); }
+  el.innerHTML += '<div style="margin-bottom:4px"><b>Error:</b> ' + msg + ' <span style="color:#888">[' + (url||'').split('/').pop() + ':' + line + ']</span></div>';
+};
+window.addEventListener('unhandledrejection', function(e) {
+  window.__errors.push({msg: 'Unhandled Promise: ' + (e.reason && e.reason.message || e.reason), stack: e.reason && e.reason.stack});
+  var el = document.getElementById('errorOverlay');
+  if (!el) { el = document.createElement('div'); el.id = 'errorOverlay'; el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:30vh;overflow:auto;background:#1a0000;color:#ff6b6b;padding:12px 16px;font:12px/1.5 monospace;z-index:99999;border-top:2px solid #ff4444;'; document.body.appendChild(el); }
+  el.innerHTML += '<div style="margin-bottom:4px"><b>Promise:</b> ' + (e.reason && e.reason.message || e.reason) + '</div>';
+});
+</script>
+
+<!-- SCRIPTS -->
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script src="./seed-data.js"></script>
+<script src="./storage-client.js"></script>
+<script src="./data-service.js"></script>
+<script src="./app.js"></script>
+
+</body>
+</html>
