@@ -2606,17 +2606,33 @@ const App = (() => {
         </div>
       </div>
 
+      ${window.Permissions && window.Permissions.isLead() ? `<div class="settings-section">
+        <h2>Import Team Members</h2>
+        <p class="text-xs text-muted" style="margin-bottom:var(--space-3)">Upload a CSV export from your HR system. Employees with @hoichoi.tv and @svf.in emails will be imported.</p>
+        <div style="display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap">
+          <input type="file" id="csvFileInput" accept=".csv" style="display:none" onchange="App.handleCSVSelect(event)">
+          <button class="btn btn-primary btn-sm" onclick="document.getElementById('csvFileInput').click()"><i data-lucide="upload"></i> Upload Employee CSV</button>
+          <span id="csvFileName" class="text-xs text-muted"></span>
+          <button id="csvConfirmBtn" class="btn btn-secondary btn-sm" style="display:none" onclick="App.importCSV()">Import</button>
+        </div>
+        <div id="csvUploadResult" style="display:none;margin-top:var(--space-3)"></div>
+      </div>` : ''}
+
       <div class="settings-section">
-        <h2>Users</h2>
+        <h2>Team Directory</h2>
         <div class="data-table-container">
           <table class="data-table settings-table">
-            <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Skills</th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Designation</th><th>Department</th><th>Reports To</th><th>Joined</th><th>Status</th></tr></thead>
             <tbody>
               ${users.map(u => `<tr>
                 <td><div class="flex gap-2 items-center">${renderAvatar(u,'sm')} ${u.name}</div></td>
                 <td class="text-xs text-muted">${u.email}</td>
-                <td><span class="badge badge-gray">${u.role.replace(/_/g,' ')}</span></td>
-                <td class="text-xs text-muted">${u.skills.join(', ')}</td>
+                <td><span class="badge badge-gray">${(u.role||'').replace(/_/g,' ')}</span></td>
+                <td class="text-xs text-muted">${u.designation || '—'}</td>
+                <td class="text-xs text-muted">${u.department || '—'}</td>
+                <td class="text-xs text-muted">${u.reportsToName || '—'}</td>
+                <td class="text-xs font-mono text-muted">${u.joinedAt ? new Date(u.joinedAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : '—'}</td>
+                <td>${u.isActive !== false ? '<span class="badge badge-green" style="font-size:10px">Active</span>' : '<span class="badge badge-gray" style="font-size:10px">Inactive</span>'}</td>
               </tr>`).join('')}
             </tbody>
           </table>
@@ -2670,6 +2686,55 @@ const App = (() => {
     SupabaseClient.resetData();
     showToast('Data reset. Reloading...', 'success');
     setTimeout(() => window.location.reload(), 500);
+  }
+
+  let _csvFile = null;
+  function handleCSVSelect(e) {
+    _csvFile = e.target.files[0];
+    if (!_csvFile) return;
+    document.getElementById('csvFileName').textContent = _csvFile.name;
+    document.getElementById('csvConfirmBtn').style.display = '';
+  }
+
+  async function importCSV() {
+    if (!_csvFile) return;
+    const btn = document.getElementById('csvConfirmBtn');
+    const resultDiv = document.getElementById('csvUploadResult');
+    btn.textContent = 'Importing…';
+    btn.disabled = true;
+    resultDiv.style.display = 'none';
+    try {
+      const formData = new FormData();
+      formData.append('file', _csvFile);
+      const res = await fetch('/api/users/import-csv', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Import failed');
+      const s = data.summary;
+      resultDiv.innerHTML = '<div class="card" style="padding:var(--space-3);background:var(--color-surface-1);border:1px solid var(--color-border)">' +
+        '<div style="font-weight:600;margin-bottom:var(--space-2);color:var(--color-success)"><i data-lucide="check-circle" style="width:14px;height:14px;vertical-align:middle"></i> Import Complete</div>' +
+        '<div class="text-xs" style="line-height:1.6">' +
+        '<div>Total rows: <strong>' + s.total_rows + '</strong></div>' +
+        '<div>Imported (new): <strong>' + s.imported + '</strong></div>' +
+        '<div>Updated: <strong>' + s.updated + '</strong></div>' +
+        '<div>Skipped: <strong>' + s.skipped + '</strong>' +
+        (s.skipped_reasons.invalid_email_domain ? ' (' + s.skipped_reasons.invalid_email_domain + ' wrong domain)' : '') +
+        '</div></div></div>';
+      resultDiv.style.display = '';
+      lucide.createIcons();
+      await SupabaseClient.loadAll();
+      navigate('settings');
+    } catch (err) {
+      resultDiv.innerHTML = '<div style="color:var(--color-error);font-size:13px"><i data-lucide="alert-circle" style="width:14px;height:14px;vertical-align:middle"></i> ' + err.message + '</div>';
+      resultDiv.style.display = '';
+      lucide.createIcons();
+    } finally {
+      btn.textContent = 'Import';
+      btn.disabled = false;
+      _csvFile = null;
+      document.getElementById('csvFileInput').value = '';
+      document.getElementById('csvFileName').textContent = '';
+      document.getElementById('csvConfirmBtn').style.display = 'none';
+    }
   }
 
   // Keep stubs so old references don't crash
@@ -3407,7 +3472,7 @@ const App = (() => {
     openNewCampaignModal,
     filterAssets, clearAssetFilters, triggerAssetUpload, handleAssetFile, setAssetView,
     openCommandPalette, closeCommandPalette, openSearchResult,
-    saveSupabaseConfig, testSupabaseConnection, exportData, importData, handleImportFile, resetData,
+    saveSupabaseConfig, testSupabaseConnection, exportData, importData, handleImportFile, resetData, handleCSVSelect, importCSV,
     updateTimesheetHours, switchTimesheetTab, switchTimesheetUser,
     timesheetPrevWeek, timesheetNextWeek, timesheetThisWeek,
     tsStart, tsShiftJob, tsStartAgain, tsEnd, tsChangeAssignedPerson,

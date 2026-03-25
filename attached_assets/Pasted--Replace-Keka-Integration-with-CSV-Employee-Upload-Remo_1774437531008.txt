@@ -1,0 +1,164 @@
+## Replace Keka Integration with CSV Employee Upload
+
+Remove all Keka HR API integration from the CreativeOps codebase and replace it with a CSV-based employee import system.
+
+---
+
+### What to Remove
+
+1. Delete `services/keka.js` entirely
+2. Remove the `POST /api/keka/sync` endpoint from `server.js`
+3. Remove all Keka-related environment variables from `.env.example` and `.env`:
+   - `KEKA_COMPANY`
+   - `KEKA_CLIENT_ID`
+   - `KEKA_CLIENT_SECRET`
+   - `KEKA_API_KEY`
+4. Remove the "Sync from Keka" button from the Settings view
+5. Remove any Keka imports or references anywhere in the codebase
+
+---
+
+### What to Build Instead
+
+#### 1. CSV Upload Endpoint
+
+Create `POST /api/users/import-csv` that:
+- Accepts a CSV file upload (use `multer` for multipart form handling)
+- Parses the CSV (use `csv-parse` or `papaparse` npm package)
+- Auto-detects column mapping by matching column headers (case-insensitive, flexible matching)
+- Upserts employees into the `users` table
+
+**Column mapping logic** (auto-detect from CSV headers):
+
+The CSV will have columns from Keka's employee export. Map them flexibly:
+
+| Look for these headers (case-insensitive, partial match) | Maps to users table field |
+|----------------------------------------------------------|--------------------------|
+| `employee id`, `emp id`, `employee number`, `id` | `keka_id` (external reference) |
+| `name`, `full name`, `display name`, `employee name` | `name` |
+| `email`, `email id`, `work email`, `official email` | `email` |
+| `department`, `dept` | stored in a new `department` field |
+| `designation`, `job title`, `title`, `role` | used to infer `role` (see mapping below) |
+| `reporting manager`, `manager`, `reports to`, `manager name` | `reports_to_name` (text field for display) |
+| `reporting manager email`, `manager email` | `reports_to_email` |
+| `location`, `office`, `work location` | `location` |
+| `status`, `employment status` | if contains "inactive"/"exit"/"separated" set `is_active = false` |
+| `phone`, `mobile`, `contact number` | `phone` |
+| `date of joining`, `joining date`, `doj` | `joined_at` |
+
+Any columns not recognized should be ignored silently.
+
+**Role inference from designation/job title:**
+```
+If designation contains (case-insensitive):
+  "lead" or "head" or "director" or "vp" or "chief" -> creative_lead
+  "design" and not "lead" -> designer
+  "motion" or "animator" -> motion_designer
+  "video" or "editor" or "edit" -> video_editor
+  "approv" -> approver
+  everything else -> requester
+```
+
+If the CSV doesn't have a designation column, default everyone to `requester`.
+
+**Upsert logic:**
+- Match by `email` (primary key for dedup)
+- If email exists in DB: update name, department, designation, manager, active status
+- If email is new: insert with auto-generated `id` (e.g., `u_` + first 8 chars of UUID)
+- Only process @hoichoi.tv and @svf.in emails. Skip all others silently.
+- Track counts: inserted, updated, skipped
+
+**Response:**
+```json
+{
+  "success": true,
+  "summary": {
+    "total_rows": 150,
+    "imported": 45,
+    "updated": 12,
+    "skipped": 93,
+    "skipped_reasons": {
+      "invalid_email_domain": 90,
+      "missing_email": 2,
+      "duplicate": 1
+    }
+  },
+  "users": [ /* array of imported/updated user objects */ ]
+}
+```
+
+#### 2. Update Users Table Schema
+
+Add these columns to the `users` table (add to `db/migrate.js`):
+
+```sql
+ALTER TABLE users ADD COLUMN IF NOT EXISTS department TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS designation TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reports_to_name TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reports_to_email TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS location TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS joined_at DATE;
+```
+
+The existing `keka_id` column stays (it stores the employee ID from the CSV now).
+
+#### 3. CSV Upload UI in Settings
+
+In the Settings view, replace the "Sync from Keka" button with a CSV upload section:
+
+```html
+<div class="settings-section">
+  <h3>Import Team Members</h3>
+  <p class="text-muted text-sm">Upload a CSV export from your HR system. Employees with @hoichoi.tv and @svf.in emails will be imported.</p>
+  <div class="csv-upload-area">
+    <input type="file" id="csvFileInput" accept=".csv" style="display:none">
+    <button class="btn btn-primary" onclick="document.getElementById('csvFileInput').click()">
+      <i data-lucide="upload"></i> Upload Employee CSV
+    </button>
+    <span id="csvFileName" class="text-sm text-muted" style="margin-left:8px"></span>
+  </div>
+  <div id="csvUploadResult" style="display:none; margin-top:12px"></div>
+</div>
+```
+
+**Upload flow:**
+1. User clicks "Upload Employee CSV"
+2. File picker opens, user selects .csv file
+3. Frontend shows file name and a "Import" confirmation button
+4. On confirm, POST the file to `/api/users/import-csv` as multipart/form-data
+5. Show a loading spinner during upload
+6. On success, display the summary: "Imported 45 new, updated 12, skipped 93 (wrong domain)"
+7. Refresh the users list in the app
+
+**Only `creative_lead` can see and use this upload section.** Hide it for other roles.
+
+#### 4. Team Directory View Enhancement
+
+Since we now have richer employee data (department, designation, manager, location), enhance the Creative Team view or add a small "Team Directory" section in Settings that shows:
+- Name, email, role, department, designation
+- Reporting manager name
+- Location
+- Status (active/inactive)
+- This is read-only, just for reference
+
+#### 5. Dependencies
+
+Add to package.json:
+```
+"multer": "^1.4.5-lts.1"
+"csv-parse": "^5.5.0"
+```
+
+---
+
+### Constraints
+
+- The CSV parser must handle: quoted fields, commas inside quotes, UTF-8 with BOM, Windows line endings (CRLF), empty rows
+- If the CSV has no recognizable email column, return an error: "Could not find an email column in the CSV. Please ensure your CSV has a column named 'email', 'Email', 'Work Email', or similar."
+- Max file size: 5MB (reject larger files with a clear error)
+- The import should be idempotent. Uploading the same CSV twice should just update existing records, not create duplicates.
+- Don't delete existing users that are missing from the CSV. Only add/update, never remove.
+- Preserve any manually created users (from seed data) that don't appear in the CSV.
+
+Build this now. Remove all Keka code and replace with the CSV upload system.

@@ -55,6 +55,14 @@ const SupabaseClient = (() => {
       avatar: initials(u.name),
       skills: Array.isArray(u.skills) ? u.skills : [],
       capacity: isCreative ? (u.capacity || 6) : 0,
+      department: u.department || null,
+      designation: u.designation || null,
+      reportsToName: u.reports_to_name || u.reportsToName || null,
+      reportsToEmail: u.reports_to_email || u.reportsToEmail || null,
+      location: u.location || null,
+      phone: u.phone || null,
+      joinedAt: u.joined_at || u.joinedAt || null,
+      isActive: u.is_active !== undefined ? u.is_active : true,
     };
   }
 

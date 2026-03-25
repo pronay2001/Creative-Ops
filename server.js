@@ -4,8 +4,12 @@ const session = require('express-session');
 const path = require('path');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
+const multer = require('multer');
+const { parse } = require('csv-parse/sync');
 const { migrate } = require('./db/migrate');
 const crypto = require('crypto');
+
+const csvUpload = multer({ limits: { fileSize: 5 * 1024 * 1024 }, storage: multer.memoryStorage() });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -916,24 +920,152 @@ app.delete('/api/content-schedule/:id', async (req, res) => {
   }
 });
 
-// ── Keka HR Sync ───────────────────────────────────────
+// ── CSV Employee Import ───────────────────────────────
 
-app.post('/api/keka/sync', async (req, res) => {
+function matchHeader(header, patterns) {
+  const h = header.toLowerCase().trim();
+  return patterns.some(p => h.includes(p));
+}
+
+function inferRole(designation) {
+  if (!designation) return 'requester';
+  const d = designation.toLowerCase();
+  if (d.includes('lead') || d.includes('head') || d.includes('director') || d.includes('vp') || d.includes('chief')) return 'creative_lead';
+  if ((d.includes('design') || d.includes('graphic')) && !d.includes('lead') && !d.includes('head') && !d.includes('director')) return 'designer';
+  if (d.includes('motion') || d.includes('animator')) return 'motion_designer';
+  if (d.includes('video') || d.includes('editor') || d.includes('edit') || d.includes('colorist')) return 'video_editor';
+  if (d.includes('approv')) return 'approver';
+  return 'requester';
+}
+
+function parseDate(val) {
+  if (!val) return null;
+  const parts = val.trim().match(/^(\d{1,2})-(\w{3})-(\d{4})$/);
+  if (parts) {
+    const months = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' };
+    const m = months[parts[2].toLowerCase()];
+    if (m) return `${parts[3]}-${m}-${parts[1].padStart(2, '0')}`;
+  }
+  const d = new Date(val);
+  if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+  return null;
+}
+
+app.post('/api/users/import-csv', csvUpload.single('file'), async (req, res) => {
   try {
     const user = await getSessionUser(req);
     if (!user || !LEAD_ROLES.includes(user.role)) {
-      return res.status(403).json({ error: 'Only creative leads can sync from Keka' });
+      return res.status(403).json({ error: 'Only creative leads can import employees' });
     }
-    const keka = require('./services/keka');
-    const result = await keka.syncEmployees(pool);
-    res.json(result);
+    if (!req.file) {
+      return res.status(400).json({ error: 'No CSV file uploaded' });
+    }
+
+    let csvContent = req.file.buffer.toString('utf-8');
+    if (csvContent.charCodeAt(0) === 0xFEFF) csvContent = csvContent.slice(1);
+
+    let records;
+    try {
+      records = parse(csvContent, { columns: true, skip_empty_lines: true, relax_column_count: true, trim: true, bom: true });
+    } catch (parseErr) {
+      return res.status(400).json({ error: 'Failed to parse CSV: ' + parseErr.message });
+    }
+
+    if (!records.length) {
+      return res.status(400).json({ error: 'CSV file is empty' });
+    }
+
+    const headers = Object.keys(records[0]);
+    const colMap = {};
+    for (const h of headers) {
+      if (!colMap.kekaId && matchHeader(h, ['employee id', 'emp id', 'employee number']) && !h.toLowerCase().includes('manager') && !h.toLowerCase().includes('reporting')) colMap.kekaId = h;
+      else if (matchHeader(h, ['full name', 'display name', 'employee name']) || h.toLowerCase().trim() === 'name') colMap.name = h;
+      else if (matchHeader(h, ['work email', 'official email', 'email id']) || h.toLowerCase().trim() === 'email') colMap.email = h;
+      else if (matchHeader(h, ['department', 'dept'])) colMap.department = h;
+      else if (matchHeader(h, ['designation', 'job title', 'title']) && !colMap.designation) colMap.designation = h;
+      else if (matchHeader(h, ['reporting manager email', 'manager email'])) colMap.reportsToEmail = h;
+      else if (matchHeader(h, ['reporting manager', 'reporting to', 'manager', 'reports to']) && !colMap.reportsToName) colMap.reportsToName = h;
+      else if (matchHeader(h, ['location', 'office', 'work location'])) colMap.location = h;
+      else if (matchHeader(h, ['status', 'employment status'])) colMap.status = h;
+      else if (matchHeader(h, ['phone', 'mobile', 'contact number'])) colMap.phone = h;
+      else if (matchHeader(h, ['date of joining', 'joining date', 'doj', 'date joined'])) colMap.joinedAt = h;
+    }
+
+    if (!colMap.email) {
+      return res.status(400).json({ error: "Could not find an email column in the CSV. Please ensure your CSV has a column named 'email', 'Email', 'Work Email', or similar." });
+    }
+
+    const summary = { total_rows: records.length, imported: 0, updated: 0, skipped: 0, skipped_reasons: { invalid_email_domain: 0, missing_email: 0, duplicate: 0 } };
+    const importedUsers = [];
+    const seenEmails = new Set();
+
+    for (const row of records) {
+      const email = (row[colMap.email] || '').trim().toLowerCase();
+      if (!email) { summary.skipped++; summary.skipped_reasons.missing_email++; continue; }
+      const domain = email.split('@')[1];
+      if (!domain || !ALLOWED_DOMAINS.includes(domain)) { summary.skipped++; summary.skipped_reasons.invalid_email_domain++; continue; }
+      if (seenEmails.has(email)) { summary.skipped++; summary.skipped_reasons.duplicate++; continue; }
+      seenEmails.add(email);
+
+      const name = colMap.name ? (row[colMap.name] || '').trim() : '';
+      const kekaId = colMap.kekaId ? (row[colMap.kekaId] || '').trim() : null;
+      const department = colMap.department ? (row[colMap.department] || '').trim() : null;
+      const designation = colMap.designation ? (row[colMap.designation] || '').trim() : null;
+      const role = inferRole(designation);
+      const reportsToName = colMap.reportsToName ? (row[colMap.reportsToName] || '').trim() : null;
+      const reportsToEmail = colMap.reportsToEmail ? (row[colMap.reportsToEmail] || '').trim() : null;
+      const location = colMap.location ? (row[colMap.location] || '').trim() : null;
+      const phone = colMap.phone ? (row[colMap.phone] || '').trim() : null;
+      const joinedAt = colMap.joinedAt ? parseDate(row[colMap.joinedAt]) : null;
+
+      let isActive = true;
+      if (colMap.status) {
+        const s = (row[colMap.status] || '').toLowerCase();
+        if (s.includes('inactive') || s.includes('exit') || s.includes('separated')) isActive = false;
+      }
+
+      let existing = await pool.query('SELECT id, name, password_hash FROM users WHERE LOWER(email) = $1', [email]);
+      if (!existing.rows[0] && kekaId) {
+        existing = await pool.query('SELECT id, name, password_hash FROM users WHERE keka_id = $1', [kekaId]);
+      }
+      if (existing.rows[0]) {
+        await pool.query(
+          `UPDATE users SET name = $1, keka_id = COALESCE($2, keka_id), email = COALESCE($3, email), department = $4, designation = $5,
+           reports_to_name = $6, reports_to_email = $7, location = $8, phone = $9, joined_at = $10,
+           is_active = $11, role = CASE WHEN role IN ('creative_lead') THEN role ELSE $12 END,
+           updated_at = NOW() WHERE id = $13`,
+          [name || existing.rows[0].name, kekaId, email, department, designation, reportsToName, reportsToEmail, location, phone, joinedAt, isActive, role, existing.rows[0].id]
+        );
+        summary.updated++;
+        const updated = await pool.query('SELECT * FROM users WHERE id = $1', [existing.rows[0].id]);
+        importedUsers.push(updated.rows[0]);
+      } else {
+        const newId = 'u_' + crypto.randomUUID().slice(0, 8);
+        const result = await pool.query(
+          `INSERT INTO users (id, name, email, keka_id, role, department, designation, reports_to_name, reports_to_email, location, phone, joined_at, is_active)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+          [newId, name || email.split('@')[0], email, kekaId, role, department, designation, reportsToName, reportsToEmail, location, phone, joinedAt, isActive]
+        );
+        summary.imported++;
+        importedUsers.push(result.rows[0]);
+      }
+    }
+
+    res.json({ success: true, summary, users: importedUsers });
   } catch (err) {
-    if (err.code === 'MODULE_NOT_FOUND') {
-      return res.status(501).json({ error: 'Keka integration not configured' });
-    }
-    console.error('[keka sync]', err.message);
+    console.error('[csv import]', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+app.use((err, req, res, next) => {
+  if (err && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'File too large. Maximum size is 5 MB.' });
+  }
+  if (err && err.message && err.message.includes('Unexpected field')) {
+    return res.status(400).json({ error: 'Invalid upload field name. Use "file" as the field name.' });
+  }
+  next(err);
 });
 
 // ── SPA Fallback ───────────────────────────────────────

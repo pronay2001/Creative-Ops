@@ -70,15 +70,14 @@ public/
 - Dynamic data (users, campaigns, requests) comes from PostgreSQL via API
 
 ### External Integrations
-- **Keka HR**: Employee sync via OAuth 2.0 (`POST /api/keka/sync`). Requires KEKA_* env vars.
+- **CSV Employee Import**: Upload HR CSV via `POST /api/users/import-csv` (multer + csv-parse). Auto-detects column headers, infers roles from designation, upserts by email. Lead-only.
 - **Microsoft Graph**: Email notifications via OAuth 2.0 client credentials. Requires AZURE_* env vars.
-- Both integrations fail gracefully when credentials are not configured.
+- Integrations fail gracefully when credentials are not configured.
 
 ### Environment Variables
 See `.env.example` for full list. Key ones:
 - `DATABASE_URL` - PostgreSQL connection (auto-set by Replit)
 - `SESSION_SECRET` - Express session secret
-- `KEKA_COMPANY`, `KEKA_CLIENT_ID`, `KEKA_CLIENT_SECRET`, `KEKA_API_KEY` - Keka HR
 - `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `MAIL_FROM` - Email
 
 ### Database
