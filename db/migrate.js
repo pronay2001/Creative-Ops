@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
   keka_id TEXT UNIQUE,
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
+  password_hash TEXT,
   role TEXT NOT NULL DEFAULT 'requester',
   skills TEXT[] DEFAULT '{}',
   capacity INTEGER DEFAULT 0,
@@ -105,19 +106,23 @@ CREATE TABLE IF NOT EXISTS content_schedule (
 `;
 
 const seedUsers = `
-INSERT INTO users (id, name, email, role, skills, capacity) VALUES
-  ('usr_pronay',   'Pronay Mukherjee', 'pronay@hoichoi.tv',   'creative_lead', ARRAY['video','motion','design'], 40),
-  ('usr_sneha',    'Sneha Roy',        'sneha@hoichoi.tv',    'designer',      ARRAY['video','motion'], 35),
-  ('usr_arjun',    'Arjun Das',        'arjun@hoichoi.tv',    'designer',      ARRAY['static','social'], 35),
-  ('usr_riya',     'Riya Sen',         'riya@hoichoi.tv',     'designer',      ARRAY['static','banner','social'], 35),
-  ('usr_anirban',  'Anirban Ghosh',    'anirban@hoichoi.tv',  'approver',      ARRAY['review'], 0),
-  ('usr_mitali',   'Mitali Chakraborty','mitali@hoichoi.tv',  'requester',     ARRAY['content'], 0),
-  ('usr_sourav',   'Sourav Banerjee',  'sourav@svf.in',       'requester',     ARRAY['marketing'], 0),
-  ('usr_priyanka', 'Priyanka Sarkar',  'priyanka@svf.in',     'approver',      ARRAY['review'], 0)
-ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, name, email, password_hash, role, skills, capacity) VALUES
+  ('usr_pronay',   'Pronay Roy',       'pronay.roy@hoichoi.tv', '$2b$10$rMCdJwdCNKdx9nGqPhfH1eAsZchE8a5QAMuF/gjwjzXD8CV10kydK', 'creative_lead', ARRAY['video','motion','design'], 40),
+  ('usr_sneha',    'Sneha Roy',        'sneha@hoichoi.tv',      '$2b$10$b0fGvXQNPf968PYmSYtUV.ufShQFb/wm827d7eIKjQqDbDVTis92.', 'designer',      ARRAY['video','motion'], 35),
+  ('usr_arjun',    'Arjun Das',        'arjun@hoichoi.tv',      '$2b$10$y8PQ26oUTRfIFf.rzTkqyORPT1cw6lBNgMfGwgLLG10fLZ.OcxHRm', 'designer',      ARRAY['static','social'], 35),
+  ('usr_riya',     'Riya Sen',         'riya@hoichoi.tv',       '$2b$10$fbCUNyI0kzBG6i6/WykRkeNuQaAERaF4zXIweHKOyA/S6g9yaTfz6', 'designer',      ARRAY['static','banner','social'], 35),
+  ('usr_anirban',  'Anirban Ghosh',    'anirban@hoichoi.tv',    '$2b$10$qUh57UgCP4r.SbmJPfAIlOQA1XaK7hfhC1Kwbfr/81.eKGDnEgfVm', 'approver',      ARRAY['review'], 0),
+  ('usr_mitali',   'Mitali Chakraborty','mitali@hoichoi.tv',    '$2b$10$3phXz7qlmopTDifxMW3pReNtMP271JdCcr9lhGvYjZbSRd9zwgf7q', 'requester',     ARRAY['content'], 0),
+  ('usr_sourav',   'Sourav Banerjee',  'sourav@svf.in',         '$2b$10$PYrlV.kBKTstY9reWENqRurHCqTQbV4kOX.lUlpeGqXSVoSZkG8eK', 'requester',     ARRAY['marketing'], 0),
+  ('usr_priyanka', 'Priyanka Sarkar',  'priyanka@svf.in',       '$2b$10$eo11VnewFOJSxrdhhbpaLO30kFAmlzLtnXIurskhm8F1OYhToffzy', 'approver',      ARRAY['review'], 0)
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  email = EXCLUDED.email,
+  password_hash = EXCLUDED.password_hash;
 `;
 
 const alterations = `
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS vertical TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS is_expedited BOOLEAN DEFAULT false;
 

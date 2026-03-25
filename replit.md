@@ -49,7 +49,7 @@ public/
 - **Theme**: Dark by default (data-theme="dark"), light mode and prefers-color-scheme supported
 
 ### Authentication & Permissions
-- **Login**: Email-based, domain-restricted (@hoichoi.tv / @svf.in). No password — login by email only.
+- **Login**: Email + password, domain-restricted (@hoichoi.tv / @svf.in). Passwords hashed with bcryptjs.
 - **Session**: express-session with memory store, cookie-based. `requireAuth` middleware on all `/api/*` except `/api/auth/*`.
 - **Roles**: `creative_lead`, `designer`, `approver`, `requester`
 - **Permission matrix**:
@@ -59,7 +59,8 @@ public/
   - Import/reset data: creative_lead only
   - Timesheet user switcher: creative_lead only (others see own timesheet)
 - **Frontend**: `window.__currentUser` + `window.Permissions` object (built in index.html). UI buttons/actions hidden based on role.
-- **Seed users**: 8 users seeded in db/migrate.js (Pronay=lead, Sneha/Arjun/Riya=designers, Anirban/Priyanka=approvers, Mitali/Sourav=requesters)
+- **Seed users**: 8 users seeded in db/migrate.js with bcrypt-hashed passwords (Pronay Roy=lead, Sneha/Arjun/Riya=designers, Anirban/Priyanka=approvers, Mitali/Sourav=requesters)
+- **Password pattern**: INITIALS@HOICHOI for hoichoi.tv users, INITIALS@SVF for svf.in users
 
 ### Key Constraints
 - **DO NOT modify**: data-service.js; app.js and index.html only for explicit auth/permission work

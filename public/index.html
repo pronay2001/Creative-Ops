@@ -53,6 +53,17 @@
           onfocus="this.style.borderColor='#d20820'"
           onblur="this.style.borderColor='#333'"
         >
+        <label style="display:block;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;margin-top:16px;font-family:Outfit,sans-serif">Password</label>
+        <input
+          type="password"
+          id="loginPassword"
+          placeholder="Enter your password"
+          required
+          autocomplete="current-password"
+          style="width:100%;padding:10px 14px;background:#191919;border:1px solid #333;border-radius:10px;color:#fff;font-size:14px;font-family:Manrope,sans-serif;outline:none;box-sizing:border-box;transition:border-color 0.2s"
+          onfocus="this.style.borderColor='#d20820'"
+          onblur="this.style.borderColor='#333'"
+        >
         <div id="loginError" style="color:#f87171;font-size:13px;margin-top:8px;display:none"></div>
         <button
           type="submit"
@@ -69,13 +80,14 @@
 <script>
 async function handleLogin() {
   var email = document.getElementById('loginEmail').value.trim();
+  var password = document.getElementById('loginPassword').value;
   var errEl = document.getElementById('loginError');
   var btn = document.getElementById('loginBtn');
   errEl.style.display = 'none';
   btn.textContent = 'Signing in…';
   btn.disabled = true;
   try {
-    var user = await SupabaseClient.login(email);
+    var user = await SupabaseClient.login(email, password);
     window.__currentUser = user;
     window.Permissions = buildPermissions(user);
     document.getElementById('loginScreen').style.display = 'none';

@@ -3,6 +3,7 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
 const { migrate } = require('./db/migrate');
 const crypto = require('crypto');
 
@@ -96,9 +97,9 @@ app.get('/api/me', async (req, res) => {
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required' });
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
   }
 
   const normalizedEmail = email.trim().toLowerCase();
@@ -110,9 +111,16 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM users WHERE LOWER(email) = $1 AND is_active = true', [normalizedEmail]);
     if (!result.rows[0]) {
-      return res.status(404).json({ error: 'No account found for this email. Contact your admin.' });
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
     const u = result.rows[0];
+    if (!u.password_hash) {
+      return res.status(401).json({ error: 'Account not set up. Contact your admin.' });
+    }
+    const valid = await bcrypt.compare(password, u.password_hash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
     req.session.userId = u.id;
     res.json({
       id: u.id,
