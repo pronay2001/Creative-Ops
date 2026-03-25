@@ -41,8 +41,16 @@ public/
 5. `app.js` renders UI from DataService methods
 6. Mutations (create, update) → `storage-client.js` → `fetch('/api/...')` → PostgreSQL
 
+### Design System (Hoichoi Brand)
+- **Colors**: Primary #d20820 (Red), Secondary #6d0550 (Velvet), Gradient linear-gradient(-60deg, #d20820, #6d0550)
+- **Fonts**: Outfit (headings, 700-800, tracking -0.02em), Manrope (body), PT Mono (monospace/data)
+- **Radii**: sm=6px, md=10px, lg=16px, xl=24px (pillow shape)
+- **Dark surfaces**: #0d0d0d / #191919 / #222222 / #2a2a2a / #333333
+- **Theme**: Dark by default (data-theme="dark"), light mode and prefers-color-scheme supported
+
 ### Key Constraints
-- **DO NOT modify**: app.js, style.css, data-service.js, index.html
+- **DO NOT modify**: app.js, data-service.js
+- **style.css, index.html**: Updated for Hoichoi brand design system; avoid further changes unless explicitly requested
 - **storage-client.js** must keep same public API (method names, signatures, return shapes)
 - Static config (platforms, verticals, departments, asset types) comes from seed-data.js (browser-side)
 - Dynamic data (users, campaigns, requests) comes from PostgreSQL via API
