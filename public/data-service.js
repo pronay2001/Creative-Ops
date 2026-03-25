@@ -129,7 +129,7 @@ const DataService = (() => {
       campaignId: data.campaignId,
       assetTypeId: effectiveAssetTypeId,
       platforms: effectivePlatforms,
-      assignedTo: null,
+      assignedTo: data.assignedTo || null,
       status: 'intake',
       priority: data.priority || 'medium',
       goLiveDate: data.goLiveDate,

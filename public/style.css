@@ -4239,3 +4239,7 @@ select.form-input {
 .auto-priority-indicator .badge {
   font-size: var(--text-xs);
 }
+
+.assign-search-item:hover {
+  background: var(--color-surface-3);
+}

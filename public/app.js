@@ -347,7 +347,7 @@ const App = (() => {
         </select>
         <select class="filter-select" onchange="App.filterRequests('assignedTo', this.value)">
           <option value="">All Assignees</option>
-          ${designers.map(d => `<option value="${d.id}" ${filters.assignedTo===d.id?'selected':''}>${d.name}</option>`).join('')}
+          ${DataService.getUsers().map(d => `<option value="${d.id}" ${filters.assignedTo===d.id?'selected':''}>${d.name}</option>`).join('')}
         </select>
         <select class="filter-select" onchange="App.filterRequests('campaignId', this.value)">
           <option value="">All Campaigns</option>
@@ -493,7 +493,7 @@ const App = (() => {
                   ${d.isOverdue ? '<span class="badge badge-red">Overdue</span>' : d.isAtRisk ? '<span class="badge badge-orange">At Risk</span>' : ''}
                 </div>
               </div>
-              ${window.Permissions && window.Permissions.isLead() ? `<div class="ct-unassigned-assign"><select class="form-input form-input-sm ct-assign-select" onchange="App.assignCreativeTeamDeliverable('${d.requestId}', '${d.id}', this.value)"><option value="">Assign to...</option>${designers.map(des => '<option value="' + des.id + '">' + des.name + '</option>').join('')}</select></div>` : ''}
+              ${window.Permissions && window.Permissions.isLead() ? `<div class="ct-unassigned-assign"><select class="form-input form-input-sm ct-assign-select" onchange="App.assignCreativeTeamDeliverable('${d.requestId}', '${d.id}', this.value)"><option value="">Assign to...</option>${DataService.getUsers().map(u => '<option value="' + u.id + '">' + u.name + '</option>').join('')}</select></div>` : ''}
             </div>`;
           }).join('')}
         </div>`}
@@ -796,19 +796,46 @@ const App = (() => {
   }
 
   /* ── 3d. ASSIGN/REASSIGN ────────────────────────────────────────── */
+  function _buildSearchableDropdown(users, onSelectFn) {
+    const dropdown = document.createElement('div');
+    dropdown.className = 'action-dropdown';
+    dropdown.style.cssText = 'max-height:280px;overflow:hidden;display:flex;flex-direction:column;min-width:220px;';
+    const searchWrap = document.createElement('div');
+    searchWrap.style.cssText = 'padding:6px 8px;border-bottom:1px solid var(--color-divider);';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Search by name…';
+    searchInput.className = 'form-input form-input-sm';
+    searchInput.style.cssText = 'width:100%;font-size:12px;padding:4px 8px;';
+    searchWrap.appendChild(searchInput);
+    dropdown.appendChild(searchWrap);
+    const listWrap = document.createElement('div');
+    listWrap.style.cssText = 'overflow-y:auto;flex:1;';
+    function renderList(filter) {
+      const filtered = filter ? users.filter(u => u.name.toLowerCase().includes(filter.toLowerCase())) : users;
+      listWrap.innerHTML = filtered.length === 0
+        ? '<div style="padding:12px;color:var(--color-text-faint);font-size:12px;text-align:center">No matches</div>'
+        : filtered.map(d => onSelectFn(d)).join('');
+    }
+    renderList('');
+    dropdown.appendChild(listWrap);
+    searchInput.addEventListener('input', () => renderList(searchInput.value));
+    searchInput.addEventListener('click', e => e.stopPropagation());
+    searchInput.addEventListener('keydown', e => e.stopPropagation());
+    setTimeout(() => searchInput.focus(), 50);
+    return dropdown;
+  }
+
   function toggleAssigneeDropdown(event, reqId) {
     event.stopPropagation();
     closeDropdowns();
     const trigger = event.currentTarget;
-    const designers = DataService.getDesigners();
-    const dropdown = document.createElement('div');
-    dropdown.className = 'action-dropdown';
-    dropdown.style.cssText = 'max-height:200px;overflow-y:auto;';
-    dropdown.innerHTML = designers.map(d =>
+    const allUsers = DataService.getUsers();
+    const dropdown = _buildSearchableDropdown(allUsers, d =>
       `<button class="action-dropdown-item" onclick="App.assignToDesigner('${reqId}','${d.id}')">
         ${renderAvatar(d, 'sm')} ${d.name}
       </button>`
-    ).join('');
+    );
     trigger.style.position = 'relative';
     trigger.appendChild(dropdown);
     activeDropdown = dropdown;
@@ -984,6 +1011,15 @@ const App = (() => {
       </div>
       <div id="slaWarning"></div>
 
+      <div class="form-group">
+        <label class="form-label">Assign to</label>
+        <div style="position:relative">
+          <input class="form-input" id="reqAssignSearch" placeholder="Search by name…" autocomplete="off">
+          <input type="hidden" id="reqAssignTo" value="">
+          <div id="reqAssignDropdown" class="assign-search-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:100;background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md);max-height:180px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div>
+        </div>
+      </div>
+
       <div class="deliverables-section">
         <div class="deliverables-section-header">
           <span class="form-label" style="margin:0">Deliverables *</span>
@@ -1040,6 +1076,34 @@ const App = (() => {
     document.getElementById('modalOverlay').classList.add('open');
     renderDeliverablesBuilder();
     lucide.createIcons();
+    _wireAssignSearch();
+  }
+
+  function _wireAssignSearch() {
+    const searchEl = document.getElementById('reqAssignSearch');
+    const hiddenEl = document.getElementById('reqAssignTo');
+    const dropEl = document.getElementById('reqAssignDropdown');
+    if (!searchEl || !dropEl) return;
+    const allUsers = DataService.getUsers();
+    function render(filter) {
+      const f = (filter || '').toLowerCase();
+      const list = f ? allUsers.filter(u => u.name.toLowerCase().includes(f)) : allUsers;
+      dropEl.innerHTML = list.length === 0
+        ? '<div style="padding:10px;color:var(--color-text-faint);font-size:12px;text-align:center">No matches</div>'
+        : list.map(u => `<div class="assign-search-item" data-uid="${u.id}" style="padding:6px 10px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;" onmousedown="App._pickAssignUser('${u.id}','${u.name.replace(/'/g,"\\'")}')">
+            ${renderAvatar(u, 'sm')} ${u.name}
+            <span style="margin-left:auto;font-size:11px;color:var(--color-text-faint)">${u.designation || u.role}</span>
+          </div>`).join('');
+    }
+    searchEl.addEventListener('focus', () => { render(searchEl.value); dropEl.style.display = ''; });
+    searchEl.addEventListener('input', () => { hiddenEl.value = ''; render(searchEl.value); dropEl.style.display = ''; });
+    searchEl.addEventListener('blur', () => { setTimeout(() => { dropEl.style.display = 'none'; }, 200); });
+  }
+
+  function _pickAssignUser(userId, userName) {
+    document.getElementById('reqAssignTo').value = userId;
+    document.getElementById('reqAssignSearch').value = userName;
+    document.getElementById('reqAssignDropdown').style.display = 'none';
   }
 
   function onAssetTypeChange() {
@@ -1092,6 +1156,7 @@ const App = (() => {
     const goLiveDate = document.getElementById('reqGoLive')?.value;
     const vertical = document.getElementById('reqVertical')?.value || '';
     const department = document.getElementById('reqDepartment')?.value || '';
+    const assignedTo = document.getElementById('reqAssignTo')?.value || null;
 
     // Compute auto priority
     let priority = 'medium';
@@ -1125,6 +1190,7 @@ const App = (() => {
 
     DataService.createRequest({
       title, campaignId, goLiveDate, priority, vertical, department,
+      assignedTo,
       deliverables,
       brief: {
         objective: document.getElementById('reqObjective')?.value || '',
@@ -3274,15 +3340,12 @@ const App = (() => {
     event.stopPropagation();
     closeDropdowns();
     const trigger = event.currentTarget;
-    const designers = DataService.getDesigners();
-    const dropdown = document.createElement('div');
-    dropdown.className = 'action-dropdown';
-    dropdown.style.cssText = 'max-height:200px;overflow-y:auto;';
-    dropdown.innerHTML = designers.map(d =>
+    const allUsers = DataService.getUsers();
+    const dropdown = _buildSearchableDropdown(allUsers, d =>
       `<button class="action-dropdown-item" onclick="App.assignDeliverableToDesigner('${reqId}','${delId}','${d.id}')">
         ${renderAvatar(d, 'sm')} ${d.name}
       </button>`
-    ).join('');
+    );
     trigger.style.position = 'relative';
     trigger.appendChild(dropdown);
     activeDropdown = dropdown;
@@ -3472,7 +3535,7 @@ const App = (() => {
     openNewCampaignModal,
     filterAssets, clearAssetFilters, triggerAssetUpload, handleAssetFile, setAssetView,
     openCommandPalette, closeCommandPalette, openSearchResult,
-    saveSupabaseConfig, testSupabaseConnection, exportData, importData, handleImportFile, resetData, handleCSVSelect, importCSV,
+    saveSupabaseConfig, testSupabaseConnection, exportData, importData, handleImportFile, resetData, handleCSVSelect, importCSV, _pickAssignUser,
     updateTimesheetHours, switchTimesheetTab, switchTimesheetUser,
     timesheetPrevWeek, timesheetNextWeek, timesheetThisWeek,
     tsStart, tsShiftJob, tsStartAgain, tsEnd, tsChangeAssignedPerson,
