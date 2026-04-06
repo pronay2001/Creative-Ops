@@ -589,6 +589,7 @@ const App = (() => {
           ${window.Permissions && window.Permissions.canAdvanceStatus(r) ? `<button class="btn btn-primary btn-sm" onclick="App.advanceStatus('${r.id}')"><i data-lucide="arrow-right"></i> Advance Status</button>` : ''}
           <button class="btn btn-secondary btn-sm" onclick="App.uploadVersion('${r.id}')"><i data-lucide="upload"></i> Upload Version</button>
           ${window.Permissions && window.Permissions.canCreateRequest() ? `<button class="btn btn-ghost btn-sm" onclick="App.duplicateRequest('${r.id}')"><i data-lucide="copy"></i> Duplicate</button>` : ''}
+          ${window.Permissions && window.Permissions.canCreateRequest() ? `<button class="btn btn-ghost btn-sm" style="color:var(--color-error)" onclick="App.deleteRequest('${r.id}')"><i data-lucide="trash-2"></i> Delete</button>` : ''}
           ${window.Permissions && window.Permissions.canApprove() ? `<div class="action-dropdown-container">
             <button class="btn btn-ghost btn-sm" onclick="App.toggleApprovalDropdown(event, '${r.id}')"><i data-lucide="check-circle"></i> Approve</button>
           </div>` : ''}
@@ -3207,7 +3208,8 @@ const App = (() => {
       <button class="context-menu-item" onclick="App.inlineSetPriority('${reqId}','urgent');App.closeContextMenu()"><i data-lucide="alert-triangle" style="width:14px;height:14px;color:var(--color-error)"></i> Set Urgent</button>
       <button class="context-menu-item" onclick="App.inlineSetPriority('${reqId}','high');App.closeContextMenu()"><i data-lucide="arrow-up" style="width:14px;height:14px;color:var(--color-warning)"></i> Set High</button>` : ''}
       ${P && P.canCreateRequest() ? `<div class="context-menu-divider"></div>
-      <button class="context-menu-item" onclick="App.duplicateRequest('${reqId}');App.closeContextMenu()"><i data-lucide="copy" style="width:14px;height:14px"></i> Duplicate</button>` : ''}
+      <button class="context-menu-item" onclick="App.duplicateRequest('${reqId}');App.closeContextMenu()"><i data-lucide="copy" style="width:14px;height:14px"></i> Duplicate</button>
+      <button class="context-menu-item" style="color:var(--color-error)" onclick="App.deleteRequest('${reqId}');App.closeContextMenu()"><i data-lucide="trash-2" style="width:14px;height:14px"></i> Delete</button>` : ''}
     `;
     menu.style.top = `${e.clientY}px`;
     menu.style.left = `${Math.min(e.clientX, window.innerWidth - 200)}px`;
@@ -3232,6 +3234,18 @@ const App = (() => {
       SupabaseClient.updateRequestField(reqId, 'priority', priority).catch(() => {});
       showToast(`Priority set to ${PRIORITIES[priority].label}`, 'success');
       renderView(currentView);
+    }
+  }
+
+  function deleteRequest(reqId) {
+    if (!confirm('Are you sure you want to delete this request? This cannot be undone.')) return;
+    const ok = DataService.deleteRequest(reqId);
+    if (ok) {
+      showToast('Request deleted', 'success');
+      closePanel();
+      renderView(currentView);
+    } else {
+      showToast('Request not found', 'error');
     }
   }
 
@@ -3543,7 +3557,7 @@ const App = (() => {
     toggleNotifications, closeNotifications, handleNotificationClick, markAllNotificationsRead,
     openShortcuts, closeShortcuts,
     showContextMenu, closeContextMenu,
-    inlineSetPriority, duplicateRequest, sortTable, applyTemplate,
+    inlineSetPriority, duplicateRequest, deleteRequest, sortTable, applyTemplate,
     switchCampaignTab, submitKnowledgeEntry, deleteKnowledgeEntry,
     submitContentItem, advanceContentStatus, deleteContentItem,
     filterCreativeTeam, assignCreativeTeamDeliverable, advanceCreativeTeamDeliverable,

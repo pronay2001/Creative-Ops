@@ -172,6 +172,16 @@ const DataService = (() => {
     return null;
   }
 
+  function deleteRequest(requestId) {
+    const idx = REQUESTS.findIndex(r => r.id === requestId);
+    if (idx !== -1) {
+      REQUESTS.splice(idx, 1);
+      SupabaseClient.deleteRequest(requestId).catch(e => console.error('Delete request failed:', e));
+      return true;
+    }
+    return false;
+  }
+
   function assignRequest(requestId, userId) {
     const req = REQUESTS.find(r => r.id === requestId);
     if (req) {
@@ -551,6 +561,7 @@ const DataService = (() => {
     getRequests,
     getRequestById,
     createRequest,
+    deleteRequest,
     updateRequestStatus,
     assignRequest,
     getCampaigns,
