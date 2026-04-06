@@ -41,4 +41,5 @@ args = "node server.js"
 waitForPort = 5000
 
 [deployment]
-deploymentTarget = "cloudrun"
+deploymentTarget = "autoscale"
+run = ["node", "server.js"]
