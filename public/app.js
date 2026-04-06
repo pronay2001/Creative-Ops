@@ -10,8 +10,9 @@ const App = (() => {
   let kanbanSortables = [];
   let workloadSortables = [];
   let calendarSortables = [];
-  let calendarYear = 2026;
-  let calendarMonth = 2; // March (0-indexed)
+  let calendarYear = new Date().getFullYear();
+  let calendarMonth = new Date().getMonth();
+  let calendarShowMine = true;
   let currentFilters = {};
   let assetFilters = {};
   let assetViewMode = 'grid';
@@ -1552,14 +1553,38 @@ const App = (() => {
   }
 
   /* ── 6. CALENDAR ───────────────────────────────────────────────────── */
+  function toggleCalendarMine() {
+    calendarShowMine = !calendarShowMine;
+    document.getElementById('viewContainer').innerHTML = renderCalendar();
+    initCalendarDnD();
+    lucide.createIcons();
+  }
+
   function renderCalendar() {
     const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const currentUserId = window.__currentUser ? window.__currentUser.id : null;
     const events = DataService.getRequestsByDate(calendarYear, calendarMonth);
-    // Also get deadline dates
     const allReqs = DataService.getRequests();
+
+    function filterByUser(reqList) {
+      if (!calendarShowMine || !currentUserId) return reqList;
+      return reqList.filter(r => {
+        if (r.assignedTo === currentUserId) return true;
+        if (r.createdBy === currentUserId) return true;
+        if (r.deliverables && r.deliverables.some(d => d.assignedTo === currentUserId)) return true;
+        return false;
+      });
+    }
+
+    const filteredEvents = {};
+    Object.keys(events).forEach(dateStr => {
+      const filtered = filterByUser(events[dateStr]);
+      if (filtered.length) filteredEvents[dateStr] = filtered;
+    });
+
     const deadlineMap = {};
-    allReqs.forEach(r => {
+    filterByUser(allReqs).forEach(r => {
       if (r.internalDeadline) {
         const rd = new Date(r.internalDeadline);
         if (rd.getFullYear() === calendarYear && rd.getMonth() === calendarMonth) {
@@ -1586,7 +1611,7 @@ const App = (() => {
     // Current month days
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      const dayEvents = events[dateStr] || [];
+      const dayEvents = filteredEvents[dateStr] || [];
       const deadlineEvents = (deadlineMap[dateStr] || []);
       const now = new Date();
       const isToday = calendarYear === now.getFullYear() && calendarMonth === now.getMonth() && d === now.getDate();
@@ -1617,6 +1642,8 @@ const App = (() => {
       cellIndex++;
     }
 
+    const userName = window.__currentUser ? window.__currentUser.name.split(' ')[0] : 'My';
+
     return `<div class="view-container">
       <div class="view-header">
         <h1>Calendar</h1>
@@ -1628,7 +1655,12 @@ const App = (() => {
           <span class="calendar-month-label">${monthNames[calendarMonth]} ${calendarYear}</span>
           <button class="btn btn-ghost btn-sm" onclick="App.nextMonth()"><i data-lucide="chevron-right"></i></button>
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="App.calendarToday()">Today</button>
+        <div class="flex gap-2" style="align-items:center">
+          <button class="btn ${calendarShowMine ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="App.toggleCalendarMine()">
+            <i data-lucide="${calendarShowMine ? 'user' : 'users'}"></i> ${calendarShowMine ? userName + "'s Tasks" : 'All Tasks'}
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="App.calendarToday()">Today</button>
+        </div>
       </div>
 
       <div class="calendar-legend">
@@ -1751,8 +1783,15 @@ const App = (() => {
 
   function showDayPopup(event, dateStr) {
     closeDayPopup();
+    const currentUserId = window.__currentUser ? window.__currentUser.id : null;
     const events = DataService.getRequestsByDate(calendarYear, calendarMonth);
-    const dayEvents = events[dateStr] || [];
+    let dayEvents = events[dateStr] || [];
+    if (calendarShowMine && currentUserId) {
+      dayEvents = dayEvents.filter(r =>
+        r.assignedTo === currentUserId || r.createdBy === currentUserId ||
+        (r.deliverables && r.deliverables.some(d => d.assignedTo === currentUserId))
+      );
+    }
     if (dayEvents.length === 0) return;
 
     const popup = document.createElement('div');
@@ -3542,7 +3581,7 @@ const App = (() => {
     advanceDeliverableStatus, toggleDelAssigneeDropdown, assignDeliverableToDesigner,
     openRequestDetail, closeDetailPanel, advanceStatus, addComment,
     filterRequests, clearFilters,
-    prevMonth, nextMonth, calendarToday, showDayPopup, confirmCalendarDrag, cancelCalendarDrag,
+    prevMonth, nextMonth, calendarToday, showDayPopup, confirmCalendarDrag, cancelCalendarDrag, toggleCalendarMine,
     showWorkloadDetail, focusSearch, kanbanCardClick, workloadCardClick,
     uploadVersion, toggleApprovalDropdown, handleApproval,
     toggleAssigneeDropdown, assignToDesigner, showToast,

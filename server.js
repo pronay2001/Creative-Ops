@@ -338,6 +338,22 @@ app.post('/api/requests', async (req, res) => {
     const dels = await pool.query('SELECT * FROM deliverables WHERE request_id = $1', [id]);
     row.deliverables = dels.rows;
     res.json(row);
+
+    try {
+      if (emailService && emailTemplates && assignedTo) {
+        const assignee = await pool.query('SELECT * FROM users WHERE id = $1', [assignedTo]);
+        if (assignee.rows[0]) {
+          const html = emailTemplates.taskAssignment(row, assignee.rows[0]);
+          fireEmail(
+            [{ address: assignee.rows[0].email, name: assignee.rows[0].name }],
+            `[CreativeOps] New task assigned: ${title}`,
+            html
+          );
+        }
+      }
+    } catch (emailErr) {
+      console.error('[email] Create-assign notification failed:', emailErr.message);
+    }
   } catch (err) {
     console.error('[POST /api/requests]', err.message);
     res.status(500).json({ error: err.message });

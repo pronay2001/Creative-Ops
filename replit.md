@@ -71,8 +71,8 @@ public/
 
 ### External Integrations
 - **CSV Employee Import**: Upload HR CSV via `POST /api/users/import-csv` (multer + csv-parse). Auto-detects column headers, infers roles from designation, upserts by email. Lead-only.
-- **Microsoft Graph**: Email notifications via OAuth 2.0 client credentials. Requires AZURE_* env vars.
-- Integrations fail gracefully when credentials are not configured.
+- **Microsoft Graph Email**: Notifications via OAuth 2.0 client credentials (`services/email.js`). Sends branded HTML emails (`services/email-templates.js`) on: task assignment (including at creation), status changes, new comments, approval decisions. Requires AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, MAIL_FROM env vars. Fails gracefully when not configured.
+- **Calendar**: In-app monthly calendar with "My Tasks" / "All Tasks" toggle. Shows go-live dates and internal deadlines. Drag-and-drop rescheduling. Filters by assigned tasks, created tasks, and deliverables assigned to the logged-in user.
 
 ### Environment Variables
 See `.env.example` for full list. Key ones:
