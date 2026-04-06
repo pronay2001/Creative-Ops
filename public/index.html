@@ -41,43 +41,135 @@
         <h1 style="font-family:Outfit,sans-serif;font-size:24px;font-weight:700;margin:16px 0 4px;letter-spacing:-0.02em;color:#ffffff">CreativeOps</h1>
         <p style="font-size:14px;color:#888;margin:0">Sign in to your Hoichoi account</p>
       </div>
-      <form id="loginForm" onsubmit="event.preventDefault();handleLogin()" style="text-align:left">
-        <label style="display:block;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;font-family:Outfit,sans-serif">Email address</label>
-        <input
-          type="email"
-          id="loginEmail"
-          placeholder="you@hoichoi.tv"
-          required
-          autocomplete="email"
-          style="width:100%;padding:10px 14px;background:#191919;border:1px solid #333;border-radius:10px;color:#fff;font-size:14px;font-family:Manrope,sans-serif;outline:none;box-sizing:border-box;transition:border-color 0.2s"
-          onfocus="this.style.borderColor='#d20820'"
-          onblur="this.style.borderColor='#333'"
-        >
-        <label style="display:block;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;margin-top:16px;font-family:Outfit,sans-serif">Password</label>
-        <input
-          type="password"
-          id="loginPassword"
-          placeholder="Enter your password"
-          required
-          autocomplete="current-password"
-          style="width:100%;padding:10px 14px;background:#191919;border:1px solid #333;border-radius:10px;color:#fff;font-size:14px;font-family:Manrope,sans-serif;outline:none;box-sizing:border-box;transition:border-color 0.2s"
-          onfocus="this.style.borderColor='#d20820'"
-          onblur="this.style.borderColor='#333'"
-        >
-        <div id="loginError" style="color:#f87171;font-size:13px;margin-top:8px;display:none"></div>
-        <button
-          type="submit"
-          id="loginBtn"
-          style="width:100%;margin-top:16px;padding:10px;background:linear-gradient(-60deg,#d20820 0%,#6d0550 100%);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;font-family:Outfit,sans-serif;cursor:pointer;transition:filter 0.2s"
-          onmouseover="this.style.filter='brightness(1.1)'"
-          onmouseout="this.style.filter='none'"
-        >Sign In</button>
-      </form>
+      <div id="loginFormWrap">
+        <form id="loginForm" onsubmit="event.preventDefault();handleLogin()" style="text-align:left">
+          <label style="display:block;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;font-family:Outfit,sans-serif">Email address</label>
+          <input
+            type="email"
+            id="loginEmail"
+            placeholder="you@hoichoi.tv"
+            required
+            autocomplete="email"
+            style="width:100%;padding:10px 14px;background:#191919;border:1px solid #333;border-radius:10px;color:#fff;font-size:14px;font-family:Manrope,sans-serif;outline:none;box-sizing:border-box;transition:border-color 0.2s"
+            onfocus="this.style.borderColor='#d20820'"
+            onblur="this.style.borderColor='#333'"
+          >
+          <label style="display:block;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;margin-top:16px;font-family:Outfit,sans-serif">Password</label>
+          <input
+            type="password"
+            id="loginPassword"
+            placeholder="Enter your password"
+            required
+            autocomplete="current-password"
+            style="width:100%;padding:10px 14px;background:#191919;border:1px solid #333;border-radius:10px;color:#fff;font-size:14px;font-family:Manrope,sans-serif;outline:none;box-sizing:border-box;transition:border-color 0.2s"
+            onfocus="this.style.borderColor='#d20820'"
+            onblur="this.style.borderColor='#333'"
+          >
+          <div id="loginError" style="color:#f87171;font-size:13px;margin-top:8px;display:none"></div>
+          <button
+            type="submit"
+            id="loginBtn"
+            style="width:100%;margin-top:16px;padding:10px;background:linear-gradient(-60deg,#d20820 0%,#6d0550 100%);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;font-family:Outfit,sans-serif;cursor:pointer;transition:filter 0.2s"
+            onmouseover="this.style.filter='brightness(1.1)'"
+            onmouseout="this.style.filter='none'"
+          >Sign In</button>
+        </form>
+        <p style="font-size:13px;color:#888;margin-top:20px;text-align:center">Don't have an account? <a href="#" onclick="event.preventDefault();toggleAuthMode()" style="color:#d20820;text-decoration:none;font-weight:600" id="authToggleLink">Sign Up</a></p>
+      </div>
+
+      <div id="registerFormWrap" style="display:none">
+        <form id="registerForm" onsubmit="event.preventDefault();handleRegister()" style="text-align:left">
+          <label style="display:block;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;font-family:Outfit,sans-serif">Full Name</label>
+          <input
+            type="text"
+            id="registerName"
+            placeholder="Your full name"
+            required
+            autocomplete="name"
+            style="width:100%;padding:10px 14px;background:#191919;border:1px solid #333;border-radius:10px;color:#fff;font-size:14px;font-family:Manrope,sans-serif;outline:none;box-sizing:border-box;transition:border-color 0.2s"
+            onfocus="this.style.borderColor='#d20820'"
+            onblur="this.style.borderColor='#333'"
+          >
+          <label style="display:block;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;margin-top:16px;font-family:Outfit,sans-serif">Email address</label>
+          <input
+            type="email"
+            id="registerEmail"
+            placeholder="you@hoichoi.tv"
+            required
+            autocomplete="email"
+            style="width:100%;padding:10px 14px;background:#191919;border:1px solid #333;border-radius:10px;color:#fff;font-size:14px;font-family:Manrope,sans-serif;outline:none;box-sizing:border-box;transition:border-color 0.2s"
+            onfocus="this.style.borderColor='#d20820'"
+            onblur="this.style.borderColor='#333'"
+          >
+          <label style="display:block;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;margin-top:16px;font-family:Outfit,sans-serif">Password</label>
+          <input
+            type="password"
+            id="registerPassword"
+            placeholder="At least 6 characters"
+            required
+            minlength="6"
+            autocomplete="new-password"
+            style="width:100%;padding:10px 14px;background:#191919;border:1px solid #333;border-radius:10px;color:#fff;font-size:14px;font-family:Manrope,sans-serif;outline:none;box-sizing:border-box;transition:border-color 0.2s"
+            onfocus="this.style.borderColor='#d20820'"
+            onblur="this.style.borderColor='#333'"
+          >
+          <div id="registerError" style="color:#f87171;font-size:13px;margin-top:8px;display:none"></div>
+          <button
+            type="submit"
+            id="registerBtn"
+            style="width:100%;margin-top:16px;padding:10px;background:linear-gradient(-60deg,#d20820 0%,#6d0550 100%);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;font-family:Outfit,sans-serif;cursor:pointer;transition:filter 0.2s"
+            onmouseover="this.style.filter='brightness(1.1)'"
+            onmouseout="this.style.filter='none'"
+          >Create Account</button>
+        </form>
+        <p style="font-size:13px;color:#888;margin-top:20px;text-align:center">Already have an account? <a href="#" onclick="event.preventDefault();toggleAuthMode()" style="color:#d20820;text-decoration:none;font-weight:600">Sign In</a></p>
+      </div>
+
       <p style="font-size:12px;color:#555;margin-top:24px">Only @hoichoi.tv and @svf.in emails are accepted</p>
     </div>
   </div>
 </div>
 <script>
+function toggleAuthMode() {
+  var loginWrap = document.getElementById('loginFormWrap');
+  var registerWrap = document.getElementById('registerFormWrap');
+  var subtitle = document.querySelector('#loginScreen p');
+  if (loginWrap.style.display === 'none') {
+    loginWrap.style.display = '';
+    registerWrap.style.display = 'none';
+  } else {
+    loginWrap.style.display = 'none';
+    registerWrap.style.display = '';
+  }
+}
+
+async function handleRegister() {
+  var name = document.getElementById('registerName').value.trim();
+  var email = document.getElementById('registerEmail').value.trim();
+  var password = document.getElementById('registerPassword').value;
+  var errEl = document.getElementById('registerError');
+  var btn = document.getElementById('registerBtn');
+  errEl.style.display = 'none';
+  btn.textContent = 'Creating account…';
+  btn.disabled = true;
+  try {
+    var user = await SupabaseClient.register(name, email, password);
+    window.__currentUser = user;
+    window.Permissions = buildPermissions(user);
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('bootLoader').style.display = 'flex';
+    await SupabaseClient.loadAll();
+    applyCurrentUserToUI();
+    showApp();
+    App.init();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+    btn.textContent = 'Create Account';
+    btn.disabled = false;
+  }
+}
+
 async function handleLogin() {
   var email = document.getElementById('loginEmail').value.trim();
   var password = document.getElementById('loginPassword').value;

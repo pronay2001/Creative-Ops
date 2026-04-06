@@ -178,6 +178,19 @@ const SupabaseClient = (() => {
     return data;
   }
 
+  async function register(name, email, password) {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Registration failed');
+    }
+    return data;
+  }
+
   async function logout() {
     await fetch('/api/auth/logout', { method: 'POST' });
     window.location.reload();
@@ -388,6 +401,7 @@ const SupabaseClient = (() => {
     persist,
     checkAuth,
     login,
+    register,
     logout,
     insertRequest,
     updateRequestField,

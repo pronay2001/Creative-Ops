@@ -139,6 +139,59 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+app.post('/api/auth/register', async (req, res) => {
+  const { email, password, name } = req.body;
+  if (!email || !password || !name) {
+    return res.status(400).json({ error: 'Name, email, and password are required' });
+  }
+  const normalizedEmail = email.trim().toLowerCase();
+  const domain = normalizedEmail.split('@')[1];
+  if (!domain || !ALLOWED_DOMAINS.includes(domain)) {
+    return res.status(403).json({ error: 'Only @hoichoi.tv and @svf.in email addresses are allowed' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
+
+  try {
+    const passwordHash = await bcrypt.hash(password, 10);
+    const existing = await pool.query('SELECT * FROM users WHERE LOWER(email) = $1', [normalizedEmail]);
+
+    let user;
+    if (existing.rows[0]) {
+      if (existing.rows[0].password_hash) {
+        return res.status(409).json({ error: 'An account with this email already exists. Please sign in.' });
+      }
+      await pool.query(
+        'UPDATE users SET password_hash = $1, name = COALESCE(NULLIF($2, \'\'), name), is_active = true WHERE id = $3',
+        [passwordHash, name.trim(), existing.rows[0].id]
+      );
+      user = { ...existing.rows[0], password_hash: passwordHash, name: name.trim() || existing.rows[0].name };
+    } else {
+      const id = uuid();
+      await pool.query(
+        `INSERT INTO users (id, name, email, role, password_hash, is_active, skills, capacity)
+         VALUES ($1, $2, $3, 'requester', $4, true, '{}', 0)`,
+        [id, name.trim(), normalizedEmail, passwordHash]
+      );
+      user = { id, name: name.trim(), email: normalizedEmail, role: 'requester', skills: [], capacity: 0 };
+    }
+
+    req.session.userId = user.id;
+    res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      skills: user.skills || [],
+      capacity: user.capacity || 0,
+    });
+  } catch (err) {
+    console.error('[POST /api/auth/register]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/auth/logout', (req, res) => {
   req.session.destroy(() => {
     res.json({ success: true });

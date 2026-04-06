@@ -50,6 +50,7 @@ public/
 
 ### Authentication & Permissions
 - **Login**: Email + password, domain-restricted (@hoichoi.tv / @svf.in). Passwords hashed with bcryptjs.
+- **Registration**: Self-service sign-up at `/api/auth/register` for @hoichoi.tv and @svf.in emails. If email exists from CSV import (no password set), sets password on existing record preserving role/designation. New users get `requester` role. Password min 6 chars.
 - **Session**: express-session with memory store, cookie-based. `requireAuth` middleware on all `/api/*` except `/api/auth/*`.
 - **Roles**: `creative_lead`, `designer`, `approver`, `requester`
 - **Permission matrix**:
