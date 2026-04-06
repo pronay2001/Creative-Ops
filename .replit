@@ -39,3 +39,6 @@ outputType = "webview"
 task = "shell.exec"
 args = "node server.js"
 waitForPort = 5000
+
+[deployment]
+deploymentTarget = "cloudrun"
