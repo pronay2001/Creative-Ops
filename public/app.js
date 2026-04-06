@@ -3281,7 +3281,7 @@ const App = (() => {
     const ok = DataService.deleteRequest(reqId);
     if (ok) {
       showToast('Request deleted', 'success');
-      closePanel();
+      closeDetailPanel();
       renderView(currentView);
     } else {
       showToast('Request not found', 'error');
