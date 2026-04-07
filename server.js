@@ -574,6 +574,39 @@ app.patch('/api/campaigns/:id', async (req, res) => {
   }
 });
 
+app.delete('/api/campaigns/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await getSessionUser(req);
+    const campaign = await pool.query('SELECT * FROM campaigns WHERE id = $1', [id]);
+    if (!campaign.rows[0]) return res.status(404).json({ error: 'Campaign not found' });
+
+    const isCreator = campaign.rows[0].created_by === req.session.userId;
+    const isLead = user && LEAD_ROLES.includes(user.role);
+    const isAdmin = user && user.hierarchy_level === 'admin';
+    if (!isCreator && !isLead && !isAdmin) {
+      return res.status(403).json({ error: 'You do not have permission to delete this campaign' });
+    }
+
+    await pool.query('DELETE FROM knowledge_entries WHERE campaign_id = $1', [id]);
+    await pool.query('DELETE FROM content_schedule WHERE campaign_id = $1', [id]);
+
+    const reqs = await pool.query('SELECT id FROM requests WHERE campaign_id = $1', [id]);
+    for (const r of reqs.rows) {
+      await pool.query('DELETE FROM asset_files WHERE request_id = $1', [r.id]);
+      await pool.query('DELETE FROM comments WHERE request_id = $1', [r.id]);
+      await pool.query('DELETE FROM activity_log WHERE request_id = $1', [r.id]);
+      await pool.query('DELETE FROM deliverables WHERE request_id = $1', [r.id]);
+    }
+    await pool.query('DELETE FROM requests WHERE campaign_id = $1', [id]);
+    await pool.query('DELETE FROM campaigns WHERE id = $1', [id]);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Requests ───────────────────────────────────────────
 
 app.get('/api/requests', async (req, res) => {

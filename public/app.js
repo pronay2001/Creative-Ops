@@ -1329,7 +1329,10 @@ const App = (() => {
           <h1>${campaign.name}</h1>
           <p class="text-xs text-muted mt-2">${campaign.description || ''}</p>
         </div>
-        ${window.Permissions && window.Permissions.canCreateRequest() ? `<button class="btn btn-primary" onclick="App.openNewRequestModal('${campaignId}')"><i data-lucide="plus" style="width:16px;height:16px"></i> New Request</button>` : ''}
+        <div class="flex gap-2">
+          ${window.Permissions && window.Permissions.canCreateRequest() ? `<button class="btn btn-primary" onclick="App.openNewRequestModal('${campaignId}')"><i data-lucide="plus" style="width:16px;height:16px"></i> New Request</button>` : ''}
+          ${window.Permissions && (window.Permissions.canEditCampaign(campaign) || window.Permissions.isAdmin()) ? `<button class="btn btn-ghost" style="color:var(--color-error)" onclick="App.deleteCampaign('${campaignId}', '${campaign.name.replace(/'/g, "\\'")}')"><i data-lucide="trash-2" style="width:16px;height:16px"></i> Delete</button>` : ''}
+        </div>
       </div>
 
       <div class="kpi-grid" style="margin-bottom:var(--space-4)">
@@ -1359,6 +1362,20 @@ const App = (() => {
     const container = document.getElementById('viewContainer');
     container.innerHTML = renderCampaignDetail(campaignId);
     lucide.createIcons();
+  }
+
+  async function deleteCampaign(campaignId, campaignName) {
+    if (!confirm(`Delete campaign "${campaignName}"? This will also delete all requests, files, comments, and activity in this campaign. This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete campaign');
+      await SupabaseClient.loadAll();
+      navigate('campaigns');
+      showToast('Campaign deleted', 'success');
+    } catch (e) {
+      showToast(e.message, 'error');
+    }
   }
 
   /* -- Knowledge Base -- */
@@ -3730,7 +3747,7 @@ const App = (() => {
     showWorkloadDetail, focusSearch, kanbanCardClick, workloadCardClick,
     uploadVersion, toggleApprovalDropdown, handleApproval,
     toggleAssigneeDropdown, assignToDesigner, toggleApproverDropdown, setApprover, changeHierarchy, changeRole, filterTeamDirectory, showToast,
-    openNewCampaignModal,
+    openNewCampaignModal, deleteCampaign,
     filterAssets, clearAssetFilters, triggerAssetUpload, handleAssetFile, setAssetView, viewRequestFiles, downloadAsset,
     openCommandPalette, closeCommandPalette, openSearchResult,
     saveSupabaseConfig, testSupabaseConnection, exportData, importData, handleImportFile, resetData, handleCSVSelect, importCSV, _pickAssignUser,
