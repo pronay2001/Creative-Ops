@@ -224,7 +224,7 @@ function buildPermissions(u) {
     canCreateRequest: function() { return ['requester','creative_lead','approver'].includes(u.role); },
     canEditRequest: function(r) { return r.createdBy === u.id || r.created_by === u.id || u.role === 'creative_lead' || hl === 'admin'; },
     canAssignRequest: function(r) { return r.createdBy === u.id || r.created_by === u.id || u.role === 'creative_lead' || hl === 'admin'; },
-    canAdvanceStatus: function(r) { return r.assignedTo === u.id || r.assigned_to === u.id || u.role === 'creative_lead' || hl === 'admin' || hl === 'manager'; },
+    canAdvanceStatus: function(r) { return r.assignedTo === u.id || r.assigned_to === u.id || u.role === 'creative_lead' || u.role === 'approver' || hl === 'admin' || hl === 'manager' || (r && r.approverId === u.id); },
     canApprove: function(r) {
       if (hl === 'admin') return true;
       if (hl === 'manager') return true;

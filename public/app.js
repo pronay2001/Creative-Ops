@@ -428,6 +428,13 @@ const App = (() => {
     const stages = r.assetType ? r.assetType.stages : [];
     const currentIdx = stages.indexOf(r.status);
 
+    const cu = window.__currentUser;
+    const isAssignee = cu && (r.assignedTo === cu.id || (r.deliverables && r.deliverables.some(d => d.assignedTo === cu.id)));
+    const isLead = window.Permissions && window.Permissions.isLead();
+    const canUpload = isAssignee || isLead;
+    const canApproveThis = window.Permissions && window.Permissions.canApprove(r);
+    const needsReview = ['under_review','first_cut'].includes(r.status);
+
     document.getElementById('panelTitle').textContent = r.title;
     document.getElementById('panelBody').innerHTML = `
       <!-- Status Timeline -->
@@ -445,14 +452,44 @@ const App = (() => {
         ${r.isExpedited ? '<div class="expedited-warning"><i data-lucide="alert-triangle"></i> Expedited — Go-live date is within SLA window</div>' : ''}
       </div>
 
+      <!-- Uploaded Assets — prominent review section -->
+      <div class="panel-section" id="assetReviewSection">
+        <div class="panel-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span><i data-lucide="folder-open" style="width:16px;height:16px;display:inline;vertical-align:text-bottom;margin-right:4px"></i> Uploaded Assets</span>
+          ${canUpload ? `<button class="btn btn-primary btn-sm" onclick="App.uploadVersion('${r.id}')"><i data-lucide="upload"></i> Upload File</button>` : ''}
+        </div>
+        <div id="assetFilesList" style="margin-top:8px;">
+          <div style="text-align:center;padding:16px;color:var(--color-text-muted);font-size:0.8rem;">Loading files...</div>
+        </div>
+      </div>
+
+      ${canApproveThis && needsReview ? `
+      <!-- Approval Actions — clear section for approvers -->
+      <div class="panel-section" style="background:var(--color-surface-3);border-radius:var(--radius-md);padding:16px;border:1px solid rgba(255,255,255,0.06);">
+        <div class="panel-section-title" style="margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+          <i data-lucide="shield-check" style="width:16px;height:16px;color:var(--color-success)"></i> Review & Approve
+        </div>
+        <p style="font-size:0.8rem;color:var(--color-text-muted);margin-bottom:12px;">Review the uploaded assets above, then choose an action:</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-sm" style="background:var(--color-success);color:#fff;border:none;" onclick="App.handleApproval('${r.id}','approve')">
+            <i data-lucide="check-circle"></i> Approve
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="App.handleApproval('${r.id}','changes')">
+            <i data-lucide="rotate-ccw"></i> Request Changes
+          </button>
+          <button class="btn btn-sm" style="background:var(--color-error);color:#fff;border:none;" onclick="App.handleApproval('${r.id}','reject')">
+            <i data-lucide="x-circle"></i> Reject
+          </button>
+        </div>
+      </div>` : ''}
+
       <!-- Actions -->
       <div class="panel-section">
         <div class="flex gap-2" style="flex-wrap:wrap;">
           ${window.Permissions && window.Permissions.canAdvanceStatus(r) ? `<button class="btn btn-primary btn-sm" onclick="App.advanceStatus('${r.id}')"><i data-lucide="arrow-right"></i> Advance Status</button>` : ''}
-          <button class="btn btn-secondary btn-sm" onclick="App.uploadVersion('${r.id}')"><i data-lucide="upload"></i> Upload Version</button>
           ${window.Permissions && window.Permissions.canCreateRequest() ? `<button class="btn btn-ghost btn-sm" onclick="App.duplicateRequest('${r.id}')"><i data-lucide="copy"></i> Duplicate</button>` : ''}
           ${window.Permissions && window.Permissions.canCreateRequest() ? `<button class="btn btn-ghost btn-sm" style="color:var(--color-error)" onclick="App.deleteRequest('${r.id}')"><i data-lucide="trash-2"></i> Delete</button>` : ''}
-          ${window.Permissions && window.Permissions.canApprove(r) ? `<div class="action-dropdown-container">
+          ${canApproveThis && !needsReview ? `<div class="action-dropdown-container">
             <button class="btn btn-ghost btn-sm" onclick="App.toggleApprovalDropdown(event, '${r.id}')"><i data-lucide="check-circle"></i> Approve</button>
           </div>` : ''}
         </div>
@@ -506,7 +543,7 @@ const App = (() => {
                 ${window.Permissions && window.Permissions.isLead() ? `<span class="deliverable-assignee-trigger" onclick="event.stopPropagation();App.toggleDelAssigneeDropdown(event,'${r.id}','${d.id}')">
                   ${d.assignee ? renderAvatar(d.assignee,'sm') : '<span class="deliverable-unassigned"><i data-lucide="user-plus" style="width:12px;height:12px"></i></span>'}
                 </span>` : `${d.assignee ? renderAvatar(d.assignee,'sm') : ''}`}
-                ${window.Permissions && (window.Permissions.isLead() || (d.assignedTo === (window.__currentUser && window.__currentUser.id))) ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.advanceDeliverableStatus('${r.id}','${d.id}')" title="Advance status"><i data-lucide="arrow-right" style="width:12px;height:12px"></i></button>` : ''}
+                ${window.Permissions && (window.Permissions.isLead() || window.Permissions.isManagerOrAdmin() || (d.assignedTo === (cu && cu.id))) ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.advanceDeliverableStatus('${r.id}','${d.id}')" title="Advance status"><i data-lucide="arrow-right" style="width:12px;height:12px"></i></button>` : ''}
               </div>
             </div>
           `).join('')}
@@ -526,24 +563,6 @@ const App = (() => {
           ${r.brief.copyDraft ? `<div class="detail-field" style="grid-column:1/-1"><label>Copy Draft</label><p style="font-style:italic">${r.brief.copyDraft}</p></div>` : ''}
         </div>
       </div>` : ''}
-
-      <!-- Versions -->
-      <div class="panel-section">
-        <div class="panel-section-title">Versions (${versions.length})</div>
-        ${versions.length > 0 ? versions.map(v => `
-          <div class="version-item">
-            <div class="version-info">
-              <span class="version-number">v${v.version}</span>
-              <span class="text-xs">${v.filename}</span>
-            </div>
-            <div class="flex gap-2 items-center">
-              ${renderAvatar(v.uploader, 'sm')}
-              <span class="text-xs text-muted">${timeAgo(v.uploadedAt)}</span>
-              <span class="badge ${v.status === 'approved' ? 'badge-green' : v.status === 'under_review' ? 'badge-orange' : 'badge-gray'}">${v.status === 'approved' ? 'Approved' : v.status === 'under_review' ? 'In Review' : 'Changes'}</span>
-            </div>
-          </div>
-        `).join('') : '<p class="text-xs text-muted">No versions uploaded yet</p>'}
-      </div>
 
       <!-- Comments -->
       <div class="panel-section">
@@ -585,6 +604,64 @@ const App = (() => {
     document.getElementById('panelOverlay').classList.add('open');
     document.getElementById('detailPanel').classList.add('open');
     lucide.createIcons();
+
+    _loadAssetFilesIntoPanel(id, canUpload);
+  }
+
+  async function _loadAssetFilesIntoPanel(reqId, canUpload) {
+    const container = document.getElementById('assetFilesList');
+    if (!container) return;
+    try {
+      const files = await loadRequestFiles(reqId);
+      if (files.length === 0) {
+        container.innerHTML = `
+          <div style="text-align:center;padding:24px;border:2px dashed var(--color-border);border-radius:var(--radius-md);color:var(--color-text-muted);">
+            <i data-lucide="image-off" style="width:32px;height:32px;margin-bottom:8px;opacity:0.5;display:inline-block;"></i>
+            <p style="font-size:0.85rem;margin:4px 0 0 0;">No files uploaded yet</p>
+            ${canUpload ? `<p style="font-size:0.75rem;margin-top:4px;">Click "Upload File" to add the first version</p>` : ''}
+          </div>`;
+        lucide.createIcons();
+        return;
+      }
+
+      function fmtSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+      }
+
+      function fileIcon(mime) {
+        if (!mime) return 'file';
+        if (mime.startsWith('image/')) return 'image';
+        if (mime.startsWith('video/')) return 'film';
+        if (mime.includes('pdf')) return 'file-text';
+        if (mime.includes('zip')) return 'archive';
+        return 'file';
+      }
+
+      container.innerHTML = files.map((f, idx) => `
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--color-surface-3);border-radius:var(--radius-md);${idx === 0 ? 'border:1px solid var(--color-primary);' : 'border:1px solid transparent;'}margin-bottom:6px;">
+          <div style="flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:var(--color-surface-1);border-radius:var(--radius-sm);">
+            <i data-lucide="${fileIcon(f.mimeType)}" style="width:18px;height:18px;color:${idx === 0 ? 'var(--color-primary)' : 'var(--color-text-muted)'}"></i>
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:0.85rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              ${idx === 0 ? '<span style="color:var(--color-primary);font-weight:700;">LATEST</span> · ' : ''}v${f.version} — ${f.filename}
+            </div>
+            <div style="font-size:0.7rem;color:var(--color-text-muted);">${fmtSize(f.fileSize)} · ${f.uploaderName || 'Unknown'} · ${new Date(f.uploadedAt).toLocaleDateString()}</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="App.downloadAsset('${f.id}', '${f.filename.replace(/'/g, "\\'")}')" title="Download this file" style="flex-shrink:0;">
+            <i data-lucide="download" style="width:16px;height:16px;"></i>
+          </button>
+        </div>
+      `).join('');
+      lucide.createIcons();
+    } catch (err) {
+      const msg = (err && err.message && err.message.includes('403'))
+        ? 'You don\'t have permission to view files for this request'
+        : 'Could not load files';
+      container.innerHTML = `<p class="text-xs text-muted" style="padding:8px 0;">${msg}</p>`;
+    }
   }
 
   function closeDetailPanel() {
@@ -660,9 +737,10 @@ const App = (() => {
       DataService.addComment(reqId, cuId, 'Some changes needed before final approval.');
       showToast('Changes requested', 'info');
     } else if (action === 'reject') {
+      DataService.updateRequestStatus(reqId, 'changes_in_progress');
       DataService.addActivity(reqId, cuId, 'rejected', 'Rejected this version');
       DataService.addComment(reqId, cuId, 'This version does not meet requirements. Please revisit the brief.');
-      showToast('Version rejected', 'error');
+      showToast('Version rejected — sent back for rework', 'error');
     }
     openRequestDetail(reqId);
     renderView(currentView);

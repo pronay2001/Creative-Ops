@@ -94,9 +94,11 @@ PostgreSQL with tables: users, campaigns, requests, deliverables, comments, acti
 
 ### Asset Management
 - **Upload**: `POST /api/requests/:id/upload` — multer disk storage, 50MB limit. Only assigned users (top-level or deliverable), leads, or hierarchy admins can upload.
-- **Download**: `GET /api/assets/:fileId/download` — permission check: request creator, assignee, uploader, lead, or hierarchy manager can download.
-- **List files**: `GET /api/requests/:id/files` — returns all uploaded files for a request with version info.
-- Frontend: `App.triggerAssetUpload()` for upload, `App.viewRequestFiles()` for file list modal with download buttons.
+- **Download**: `GET /api/assets/:fileId/download` — permission check: request creator, assignee, uploader, lead, approver role, designated approver, or hierarchy manager can download.
+- **List files**: `GET /api/requests/:id/files` — returns all uploaded files for a request with version info. Same permission scope as download.
+- **Detail panel**: Uploaded assets shown prominently at top of request detail with LATEST file highlighted (primary border). Each file shows icon, version, filename, size, uploader, date, and download button. Files load asynchronously via `_loadAssetFilesIntoPanel()`.
+- **Review & Approve section**: When request status is `under_review` or `first_cut`, approvers see a highlighted approval section with Approve/Request Changes/Reject buttons directly below the asset list. Reject sends status back to `changes_in_progress`.
+- Frontend: `App.triggerAssetUpload()` for upload, `App.viewRequestFiles()` for file list modal, `App.downloadAsset()` for individual file download.
 
 ### Workload & Timesheet
 - `DataService.getWorkload()` now filters to only show team members with active tasks assigned.

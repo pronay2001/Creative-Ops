@@ -964,13 +964,16 @@ app.get('/api/requests/:id/files', async (req, res) => {
     const request = await pool.query('SELECT created_by, assigned_to FROM requests WHERE id = $1', [id]);
     if (!request.rows[0]) return res.status(404).json({ error: 'Request not found' });
     const r = request.rows[0];
+    const requestFull = await pool.query('SELECT approver_id FROM requests WHERE id = $1', [id]);
     const isCreator = r.created_by === req.session.userId;
     const isAssignee = r.assigned_to === req.session.userId;
     const isLead = user && LEAD_ROLES.includes(user.role);
+    const isApproverRole = user && APPROVER_ROLES.includes(user.role);
     const isHierarchyManager = user && (user.hierarchy_level === 'admin' || user.hierarchy_level === 'manager');
+    const isDesignatedApprover = user && requestFull.rows[0] && requestFull.rows[0].approver_id === user.id;
     const delCheck = await pool.query('SELECT 1 FROM deliverables WHERE request_id = $1 AND assigned_to = $2 LIMIT 1', [id, req.session.userId]);
     const isDelAssignee = delCheck.rows.length > 0;
-    if (!isCreator && !isAssignee && !isLead && !isHierarchyManager && !isDelAssignee) {
+    if (!isCreator && !isAssignee && !isLead && !isApproverRole && !isHierarchyManager && !isDesignatedApprover && !isDelAssignee) {
       return res.status(403).json({ error: 'Access denied' });
     }
     const files = await pool.query(
@@ -1005,13 +1008,16 @@ app.get('/api/assets/:fileId/download', async (req, res) => {
     const isAssignee = f.assigned_to === req.session.userId;
     const isUploader = f.uploaded_by === req.session.userId;
     const isLead = user && LEAD_ROLES.includes(user.role);
+    const isApproverRole = user && APPROVER_ROLES.includes(user.role);
     const isHierarchyManager = user && (user.hierarchy_level === 'admin' || user.hierarchy_level === 'manager');
+    const reqApprover = await pool.query('SELECT approver_id FROM requests WHERE id = $1', [f.request_id]);
+    const isDesignatedApprover = user && reqApprover.rows[0] && reqApprover.rows[0].approver_id === user.id;
     const hasDelAssigned = await pool.query(
       'SELECT 1 FROM deliverables WHERE request_id = $1 AND assigned_to = $2 LIMIT 1', [f.request_id, req.session.userId]
     );
     const isDeliverableAssignee = hasDelAssigned.rows.length > 0;
 
-    if (!isCreator && !isAssignee && !isUploader && !isLead && !isHierarchyManager && !isDeliverableAssignee) {
+    if (!isCreator && !isAssignee && !isUploader && !isLead && !isApproverRole && !isHierarchyManager && !isDesignatedApprover && !isDeliverableAssignee) {
       return res.status(403).json({ error: 'You do not have permission to download this file' });
     }
 
