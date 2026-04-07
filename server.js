@@ -55,6 +55,7 @@ const ALLOWED_DOMAINS = ['hoichoi.tv', 'svf.in'];
 const CREATOR_ROLES = ['requester', 'creative_lead', 'approver'];
 const LEAD_ROLES = ['creative_lead'];
 const APPROVER_ROLES = ['creative_lead', 'approver'];
+const HIERARCHY_LEVELS = ['admin', 'manager', 'team'];
 
 function requireAuth(req, res, next) {
   if (!req.session.userId) {
@@ -93,6 +94,7 @@ app.get('/api/me', async (req, res) => {
       email: u.email,
       role: u.role,
       designation: u.designation || null,
+      hierarchy_level: u.hierarchy_level || 'team',
       skills: u.skills || [],
       capacity: u.capacity || 0,
     });
@@ -133,6 +135,7 @@ app.post('/api/auth/login', async (req, res) => {
       email: u.email,
       role: u.role,
       designation: u.designation || null,
+      hierarchy_level: u.hierarchy_level || 'team',
       skills: u.skills || [],
       capacity: u.capacity || 0,
     });
@@ -186,6 +189,7 @@ app.post('/api/auth/register', async (req, res) => {
       email: user.email,
       role: user.role,
       designation: user.designation || null,
+      hierarchy_level: user.hierarchy_level || 'team',
       skills: user.skills || [],
       capacity: user.capacity || 0,
     });
@@ -420,6 +424,51 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
+app.patch('/api/users/:id/hierarchy', async (req, res) => {
+  try {
+    const user = await getSessionUser(req);
+    if (!user || user.hierarchy_level !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can change hierarchy levels' });
+    }
+    const { hierarchy_level } = req.body;
+    if (!HIERARCHY_LEVELS.includes(hierarchy_level)) {
+      return res.status(400).json({ error: 'Invalid hierarchy level. Must be admin, manager, or team.' });
+    }
+    const targetId = req.params.id;
+    const result = await pool.query(
+      'UPDATE users SET hierarchy_level = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+      [hierarchy_level, targetId]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'User not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/users/:id/role', async (req, res) => {
+  try {
+    const user = await getSessionUser(req);
+    if (!user || user.hierarchy_level !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can change user roles' });
+    }
+    const { role } = req.body;
+    const validRoles = ['creative_lead', 'designer', 'motion_designer', 'video_editor', 'requester', 'approver'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+    const targetId = req.params.id;
+    const result = await pool.query(
+      'UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+      [role, targetId]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'User not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Campaigns ──────────────────────────────────────────
 
 app.get('/api/campaigns', async (req, res) => {
@@ -510,12 +559,20 @@ app.post('/api/requests', async (req, res) => {
       return res.status(403).json({ error: 'You don\'t have permission to create requests' });
     }
 
-    const { title, campaignId, assetTypeId, department, platforms, assignedTo, priority, goLiveDate, internalDeadline, brief, deliverables, vertical, isExpedited } = req.body;
+    const { title, campaignId, assetTypeId, department, platforms, assignedTo, priority, goLiveDate, internalDeadline, brief, deliverables, vertical, isExpedited, approverId } = req.body;
+
+    if (approverId) {
+      const approverRow = await pool.query('SELECT hierarchy_level FROM users WHERE id = $1', [approverId]);
+      if (!approverRow.rows[0] || !['admin', 'manager'].includes(approverRow.rows[0].hierarchy_level)) {
+        return res.status(400).json({ error: 'Selected approver must be a manager or admin' });
+      }
+    }
+
     const id = uuid();
     const result = await pool.query(
-      `INSERT INTO requests (id, title, campaign_id, asset_type_id, department, platforms, assigned_to, status, priority, go_live_date, internal_deadline, brief, created_by, vertical, is_expedited)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'intake', $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
-      [id, title, campaignId || null, assetTypeId, department || '', platforms || [], assignedTo || null, priority || 'medium', goLiveDate || null, internalDeadline || null, JSON.stringify(brief || {}), req.session.userId, vertical || '', isExpedited || false]
+      `INSERT INTO requests (id, title, campaign_id, asset_type_id, department, platforms, assigned_to, status, priority, go_live_date, internal_deadline, brief, created_by, vertical, is_expedited, approver_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'intake', $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
+      [id, title, campaignId || null, assetTypeId, department || '', platforms || [], assignedTo || null, priority || 'medium', goLiveDate || null, internalDeadline || null, JSON.stringify(brief || {}), req.session.userId, vertical || '', isExpedited || false, approverId || null]
     );
 
     if (deliverables && deliverables.length) {
@@ -573,24 +630,52 @@ app.patch('/api/requests/:id', async (req, res) => {
     const isAssignee = oldData.assigned_to === req.session.userId;
     const isLead = user && LEAD_ROLES.includes(user.role);
     const isApprover = user && APPROVER_ROLES.includes(user.role);
+    const isHierarchyAdmin = user && user.hierarchy_level === 'admin';
+    const isHierarchyManager = user && (user.hierarchy_level === 'admin' || user.hierarchy_level === 'manager');
+    const isDesignatedApprover = user && oldData.approver_id === user.id;
 
     const isStatusChange = fields.status && fields.status !== oldData.status;
     const isAssignmentChange = fields.assignedTo !== undefined && fields.assignedTo !== oldData.assigned_to;
-    const isBriefEdit = fields.title || fields.brief || fields.priority || fields.goLiveDate || fields.internalDeadline;
+    const isApproverChange = fields.approverId !== undefined;
 
     if (isStatusChange) {
-      if (!isAssignee && !isLead && !isApprover) {
-        return res.status(403).json({ error: 'Only the assigned designer, creative lead, or approver can change status' });
+      if (!isAssignee && !isLead && !isApprover && !isHierarchyManager && !isDesignatedApprover) {
+        return res.status(403).json({ error: 'Only the assigned designer, a manager/admin, or the designated approver can change status' });
       }
     }
     if (isAssignmentChange) {
-      if (!isCreator && !isLead) {
-        return res.status(403).json({ error: 'Only the request creator or creative lead can assign requests' });
+      if (!isCreator && !isLead && !isHierarchyAdmin) {
+        return res.status(403).json({ error: 'Only the request creator or an admin can assign requests' });
       }
     }
-    if (!isStatusChange && !isAssignmentChange) {
-      if (!isCreator && !isLead) {
+    if (isApproverChange) {
+      if (!isCreator && !isLead && !isHierarchyAdmin) {
+        return res.status(403).json({ error: 'Only the request creator or an admin can set the approver' });
+      }
+    }
+    const canEditGeneral = isCreator || isLead || isHierarchyAdmin;
+    if (!isStatusChange && !isAssignmentChange && !isApproverChange) {
+      if (!canEditGeneral) {
         return res.status(403).json({ error: 'You can only edit requests you created' });
+      }
+    }
+
+    if (!canEditGeneral) {
+      const allowedFields = new Set();
+      if (isStatusChange) allowedFields.add('status');
+      if (isAssignmentChange && (isCreator || isLead || isHierarchyAdmin)) allowedFields.add('assignedTo');
+      if (isApproverChange && (isCreator || isLead || isHierarchyAdmin)) allowedFields.add('approverId');
+      for (const key of Object.keys(fields)) {
+        if (!allowedFields.has(key)) {
+          delete fields[key];
+        }
+      }
+    }
+
+    if (fields.approverId) {
+      const approverRow = await pool.query('SELECT hierarchy_level FROM users WHERE id = $1', [fields.approverId]);
+      if (!approverRow.rows[0] || !['admin', 'manager'].includes(approverRow.rows[0].hierarchy_level)) {
+        return res.status(400).json({ error: 'Selected approver must be a manager or admin' });
       }
     }
 
@@ -607,6 +692,7 @@ app.patch('/api/requests/:id', async (req, res) => {
       createdBy: 'created_by',
       createdDate: 'created_date',
       isExpedited: 'is_expedited',
+      approverId: 'approver_id',
     };
 
     for (const [key, val] of Object.entries(fields)) {
@@ -757,8 +843,10 @@ app.post('/api/requests/:id/status', async (req, res) => {
     const isAssignee = old.rows[0].assigned_to === req.session.userId;
     const isLead = user && LEAD_ROLES.includes(user.role);
     const isApprover = user && APPROVER_ROLES.includes(user.role);
-    if (!isAssignee && !isLead && !isApprover) {
-      return res.status(403).json({ error: 'Only the assigned designer, creative lead, or approver can change status' });
+    const isHierarchyManager = user && (user.hierarchy_level === 'admin' || user.hierarchy_level === 'manager');
+    const isDesignatedApprover = user && old.rows[0].approver_id === user.id;
+    if (!isAssignee && !isLead && !isApprover && !isHierarchyManager && !isDesignatedApprover) {
+      return res.status(403).json({ error: 'Only the assigned designer, a manager/admin, or the designated approver can change status' });
     }
 
     const oldStatus = old.rows[0].status;
@@ -900,8 +988,9 @@ app.patch('/api/deliverables/:id', async (req, res) => {
     if (fields.assignedTo !== undefined && !isLead) {
       return res.status(403).json({ error: 'Only the creative lead can reassign deliverables' });
     }
-    if (fields.status !== undefined && !isAssignee && !isLead && !isApprover) {
-      return res.status(403).json({ error: 'Only the assigned designer, lead, or approver can change deliverable status' });
+    const isHierarchyManager = user && (user.hierarchy_level === 'admin' || user.hierarchy_level === 'manager');
+    if (fields.status !== undefined && !isAssignee && !isLead && !isApprover && !isHierarchyManager) {
+      return res.status(403).json({ error: 'Only the assigned designer, lead, manager, or admin can change deliverable status' });
     }
 
     const sets = [];

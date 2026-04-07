@@ -60,12 +60,15 @@ const DataService = (() => {
     const isOnTrack = !isOverdue && !isAtRisk;
     const isExpedited = daysUntilGoLive < (assetType ? assetType.slaDays : 3);
 
+    const approver = r.approverId ? USERS.find(u => u.id === r.approverId) : null;
+
     return {
       ...r,
       campaign,
       assetType,
       assignee,
       creator,
+      approver,
       daysUntilDeadline,
       daysUntilGoLive,
       isOverdue,
@@ -140,6 +143,7 @@ const DataService = (() => {
       deliverables: deliverables,
       department: data.department || '',
       vertical: data.vertical || '',
+      approverId: data.approverId || null,
     };
 
     REQUESTS.push(newReq);
@@ -189,6 +193,28 @@ const DataService = (() => {
       const user = USERS.find(u => u.id === userId);
       addActivity(requestId, (window.__currentUser && window.__currentUser.id) || '', 'assigned', `Assigned to ${user ? user.name : userId}`);
       SupabaseClient.updateRequestField(requestId, 'assignedTo', userId).catch(e => console.error('Assign failed:', e));
+      return enrichRequest(req);
+    }
+    return null;
+  }
+
+  function setRequestApprover(requestId, userId) {
+    const req = REQUESTS.find(r => r.id === requestId);
+    if (req) {
+      req.approverId = userId;
+      const user = USERS.find(u => u.id === userId);
+      addActivity(requestId, (window.__currentUser && window.__currentUser.id) || '', 'approver_set', `Approver set to ${user ? user.name : userId}`);
+      SupabaseClient.updateRequestField(requestId, 'approverId', userId).catch(e => console.error('Set approver failed:', e));
+      return enrichRequest(req);
+    }
+    return null;
+  }
+
+  function updateRequestField(requestId, field, value) {
+    const req = REQUESTS.find(r => r.id === requestId);
+    if (req) {
+      req[field] = value;
+      SupabaseClient.updateRequestField(requestId, field, value).catch(e => console.error('Update failed:', e));
       return enrichRequest(req);
     }
     return null;
@@ -564,6 +590,8 @@ const DataService = (() => {
     deleteRequest,
     updateRequestStatus,
     assignRequest,
+    setRequestApprover,
+    updateRequestField,
     getCampaigns,
     getCampaignById,
     createCampaign,

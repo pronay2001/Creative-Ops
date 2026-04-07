@@ -57,6 +57,7 @@ const SupabaseClient = (() => {
       capacity: isCreative ? (u.capacity || 6) : 0,
       department: u.department || null,
       designation: u.designation || null,
+      hierarchyLevel: u.hierarchy_level || u.hierarchyLevel || 'team',
       reportsToName: u.reports_to_name || u.reportsToName || null,
       reportsToEmail: u.reports_to_email || u.reportsToEmail || null,
       location: u.location || null,
@@ -102,6 +103,7 @@ const SupabaseClient = (() => {
       createdBy: r.created_by || r.createdBy || '',
       brief: r.brief || {},
       isExpedited: r.is_expedited || false,
+      approverId: r.approver_id || r.approverId || null,
       deliverables: deliverables,
       department: r.department || '',
     };

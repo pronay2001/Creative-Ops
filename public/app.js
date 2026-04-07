@@ -452,7 +452,7 @@ const App = (() => {
           <button class="btn btn-secondary btn-sm" onclick="App.uploadVersion('${r.id}')"><i data-lucide="upload"></i> Upload Version</button>
           ${window.Permissions && window.Permissions.canCreateRequest() ? `<button class="btn btn-ghost btn-sm" onclick="App.duplicateRequest('${r.id}')"><i data-lucide="copy"></i> Duplicate</button>` : ''}
           ${window.Permissions && window.Permissions.canCreateRequest() ? `<button class="btn btn-ghost btn-sm" style="color:var(--color-error)" onclick="App.deleteRequest('${r.id}')"><i data-lucide="trash-2"></i> Delete</button>` : ''}
-          ${window.Permissions && window.Permissions.canApprove() ? `<div class="action-dropdown-container">
+          ${window.Permissions && window.Permissions.canApprove(r) ? `<div class="action-dropdown-container">
             <button class="btn btn-ghost btn-sm" onclick="App.toggleApprovalDropdown(event, '${r.id}')"><i data-lucide="check-circle"></i> Approve</button>
           </div>` : ''}
         </div>
@@ -475,6 +475,12 @@ const App = (() => {
             </span>` : `${r.assignee ? `${renderAvatar(r.assignee,'sm')} ${r.assignee.name}` : '<span class="text-faint">Unassigned</span>'}`}
           </p></div>
           <div class="detail-field"><label>Created By</label><p>${r.creator ? r.creator.name : '—'}</p></div>
+          <div class="detail-field"><label>Approver</label><p>
+            ${window.Permissions && (window.Permissions.canEditRequest(r)) ? `<span class="assignee-dropdown-trigger" onclick="App.toggleApproverDropdown(event, '${r.id}')">
+              ${r.approver ? `${renderAvatar(r.approver,'sm')} ${r.approver.name}` : '<span class="text-faint">Select approver</span>'}
+              <i data-lucide="chevron-down" style="width:12px;height:12px;color:var(--color-text-faint)"></i>
+            </span>` : `${r.approver ? `${renderAvatar(r.approver,'sm')} ${r.approver.name}` : '<span class="text-faint">Not set</span>'}`}
+          </p></div>
           <div class="detail-field"><label>Vertical</label><p>${r.verticalObj ? r.verticalObj.name : '—'}</p></div>
           <div class="detail-field"><label>Department</label><p>${r.departmentObj ? r.departmentObj.fullName : '—'}</p></div>
           <div class="detail-field"><label>Platforms</label><p><span class="flex gap-2 items-center">${r.platformObjects.map(p => `<span class="flex gap-2 items-center"><span class="platform-dot platform-${p.id}"></span><span class="text-xs">${p.name}</span></span>`).join(' ')}</span></p></div>
@@ -715,6 +721,32 @@ const App = (() => {
     renderView(currentView);
   }
 
+  function toggleApproverDropdown(event, reqId) {
+    event.stopPropagation();
+    closeDropdowns();
+    const trigger = event.currentTarget;
+    const allUsers = DataService.getUsers().filter(u => u.hierarchyLevel === 'admin' || u.hierarchyLevel === 'manager');
+    const dropdown = _buildSearchableDropdown(allUsers, d =>
+      `<button class="action-dropdown-item" onclick="App.setApprover('${reqId}','${d.id}')">
+        ${renderAvatar(d, 'sm')} ${d.name} <span class="text-xs text-faint" style="margin-left:auto">${d.hierarchyLevel}</span>
+      </button>`
+    );
+    trigger.style.position = 'relative';
+    trigger.appendChild(dropdown);
+    activeDropdown = dropdown;
+    lucide.createIcons();
+    setTimeout(() => document.addEventListener('click', closeDropdownOnClick), 10);
+  }
+
+  function setApprover(reqId, userId) {
+    closeDropdowns();
+    DataService.setRequestApprover(reqId, userId);
+    const user = DataService.getUserById(userId);
+    showToast(`Approver set to ${user ? user.name : userId}`, 'success');
+    openRequestDetail(reqId);
+    renderView(currentView);
+  }
+
   /* ── DROPDOWN HELPERS ─────────────────────────────────────────── */
   function closeDropdowns() {
     if (activeDropdown) {
@@ -874,12 +906,22 @@ const App = (() => {
       </div>
       <div id="slaWarning"></div>
 
-      <div class="form-group">
-        <label class="form-label">Assign to</label>
-        <div style="position:relative">
-          <input class="form-input" id="reqAssignSearch" placeholder="Search by name…" autocomplete="off">
-          <input type="hidden" id="reqAssignTo" value="">
-          <div id="reqAssignDropdown" class="assign-search-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:100;background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md);max-height:180px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Assign to</label>
+          <div style="position:relative">
+            <input class="form-input" id="reqAssignSearch" placeholder="Search by name…" autocomplete="off">
+            <input type="hidden" id="reqAssignTo" value="">
+            <div id="reqAssignDropdown" class="assign-search-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:100;background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md);max-height:180px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Final Approver</label>
+          <select class="form-select" id="reqApprover">
+            <option value="">Select approver</option>
+            ${DataService.getUsers().filter(u => u.hierarchyLevel === 'admin' || u.hierarchyLevel === 'manager').map(u => '<option value="' + u.id + '">' + u.name + ' (' + u.hierarchyLevel + ')' + '</option>').join('')}
+          </select>
+          <span class="text-xs text-faint" style="margin-top:2px;display:block">Only managers and admins can approve final drafts</span>
         </div>
       </div>
 
@@ -1050,10 +1092,11 @@ const App = (() => {
     }));
 
     const languages = [...document.getElementById('reqLanguages').selectedOptions].map(o => o.value);
+    const approverId = document.getElementById('reqApprover')?.value || null;
 
     DataService.createRequest({
       title, campaignId, goLiveDate, priority, vertical, department,
-      assignedTo,
+      assignedTo, approverId,
       deliverables,
       brief: {
         objective: document.getElementById('reqObjective')?.value || '',
@@ -2589,16 +2632,25 @@ const App = (() => {
         <h2>Team Directory</h2>
         <div class="data-table-container">
           <table class="data-table settings-table">
-            <thead><tr><th>Name</th><th>Email</th><th>Designation</th><th>Reports To</th><th>Joined</th><th>Status</th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Designation</th><th>Hierarchy</th><th>Reports To</th><th>Status</th>${window.Permissions && window.Permissions.canManageHierarchy() ? '<th>Actions</th>' : ''}</tr></thead>
             <tbody>
-              ${users.map(u => `<tr>
+              ${users.map(u => {
+                const hlBadge = u.hierarchyLevel === 'admin' ? '<span class="badge badge-red" style="font-size:10px">Admin</span>' : u.hierarchyLevel === 'manager' ? '<span class="badge badge-blue" style="font-size:10px">Manager</span>' : '<span class="badge badge-gray" style="font-size:10px">Team</span>';
+                return `<tr>
                 <td><div class="flex gap-2 items-center">${renderAvatar(u,'sm')} ${u.name}</div></td>
                 <td class="text-xs text-muted">${u.email}</td>
                 <td class="text-xs">${u.designation || '—'}</td>
+                <td>${hlBadge}</td>
                 <td class="text-xs text-muted">${u.reportsToName || '—'}</td>
-                <td class="text-xs font-mono text-muted">${u.joinedAt ? new Date(u.joinedAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : '—'}</td>
                 <td>${u.isActive !== false ? '<span class="badge badge-green" style="font-size:10px">Active</span>' : '<span class="badge badge-gray" style="font-size:10px">Inactive</span>'}</td>
-              </tr>`).join('')}
+                ${window.Permissions && window.Permissions.canManageHierarchy() ? `<td>
+                  <select class="form-select" style="font-size:11px;padding:2px 6px;min-width:90px;height:28px" onchange="App.changeHierarchy('${u.id}', this.value)" ${u.id === window.__currentUser?.id ? '' : ''}>
+                    <option value="team" ${u.hierarchyLevel === 'team' ? 'selected' : ''}>Team</option>
+                    <option value="manager" ${u.hierarchyLevel === 'manager' ? 'selected' : ''}>Manager</option>
+                    <option value="admin" ${u.hierarchyLevel === 'admin' ? 'selected' : ''}>Admin</option>
+                  </select>
+                </td>` : ''}
+              </tr>`}).join('')}
             </tbody>
           </table>
         </div>
@@ -2699,6 +2751,24 @@ const App = (() => {
       document.getElementById('csvFileInput').value = '';
       document.getElementById('csvFileName').textContent = '';
       document.getElementById('csvConfirmBtn').style.display = 'none';
+    }
+  }
+
+  async function changeHierarchy(userId, level) {
+    try {
+      const res = await fetch(`/api/users/${userId}/hierarchy`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hierarchy_level: level }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update hierarchy');
+      const user = DataService.getUserById(userId);
+      if (user) user.hierarchyLevel = level;
+      showToast(`${data.name} is now ${level}`, 'success');
+    } catch (e) {
+      showToast(e.message, 'error');
+      renderView('settings');
     }
   }
 
@@ -3443,7 +3513,7 @@ const App = (() => {
     prevMonth, nextMonth, calendarToday, showDayPopup, confirmCalendarDrag, cancelCalendarDrag, toggleCalendarMine,
     showWorkloadDetail, focusSearch, kanbanCardClick, workloadCardClick,
     uploadVersion, toggleApprovalDropdown, handleApproval,
-    toggleAssigneeDropdown, assignToDesigner, showToast,
+    toggleAssigneeDropdown, assignToDesigner, toggleApproverDropdown, setApprover, changeHierarchy, showToast,
     openNewCampaignModal,
     filterAssets, clearAssetFilters, triggerAssetUpload, handleAssetFile, setAssetView,
     openCommandPalette, closeCommandPalette, openSearchResult,

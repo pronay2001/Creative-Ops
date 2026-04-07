@@ -54,14 +54,17 @@ public/
 - **Registration**: Self-service sign-up at `/api/auth/register` for @hoichoi.tv and @svf.in emails. If email exists from CSV import (no password set), sets password on existing record preserving role/designation. New users get `requester` role. Password min 6 chars.
 - **Session**: express-session with memory store, cookie-based. `requireAuth` middleware on all `/api/*` except `/api/auth/*`.
 - **Roles**: `creative_lead`, `designer`, `approver`, `requester`
+- **Hierarchy Levels**: `admin` (full control), `manager` (can approve/advance), `team` (default). Column `hierarchy_level` on users table. Admin-only endpoints: `PATCH /api/users/:id/hierarchy`, `PATCH /api/users/:id/role`.
+- **Approval Workflow**: Requests have optional `approver_id` (designated approver). Permission to change status: assigned designer, creative_lead role, approver role, hierarchy admin/manager, or designated approver. `DataService.setRequestApprover()` and `DataService.updateRequestField()` for client-side state management.
 - **Permission matrix**:
   - Create requests/campaigns: requester, creative_lead, approver
   - Assign requests: creative_lead only
-  - Advance status/approve: creative_lead, approver (+ assigned designer for own work)
+  - Advance status/approve: creative_lead, approver, hierarchy admin/manager, designated approver (+ assigned designer for own work)
   - Import/reset data: creative_lead only
+  - Change hierarchy/roles: hierarchy admin only
   - Timesheet user switcher: creative_lead only (others see own timesheet)
-- **Frontend**: `window.__currentUser` + `window.Permissions` object (built in index.html). UI buttons/actions hidden based on role.
-- **Seed users**: 8 users seeded in db/migrate.js with bcrypt-hashed passwords (Pronay Roy=lead, Sneha/Arjun/Riya=designers, Anirban/Priyanka=approvers, Mitali/Sourav=requesters)
+- **Frontend**: `window.__currentUser` + `window.Permissions` object (built in index.html). UI buttons/actions hidden based on role. Hierarchy badges shown in Team Directory. Approver selector in request create and detail panels.
+- **Seed users**: 91 employees seeded in db/migrate.js from HR CSV data with `ON CONFLICT (email)` upserts. Pronay Roy bootstrapped as hierarchy admin via `hierarchyBootstrap` migration step.
 - **Password pattern**: INITIALS@HOICHOI for hoichoi.tv users, INITIALS@SVF for svf.in users
 
 ### Key Constraints

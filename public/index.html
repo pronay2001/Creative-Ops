@@ -219,17 +219,27 @@ async function handleLogin() {
   }
 }
 function buildPermissions(u) {
+  var hl = u.hierarchy_level || u.hierarchyLevel || 'team';
   return {
     canCreateRequest: function() { return ['requester','creative_lead','approver'].includes(u.role); },
-    canEditRequest: function(r) { return r.createdBy === u.id || r.created_by === u.id || u.role === 'creative_lead'; },
-    canAssignRequest: function(r) { return r.createdBy === u.id || r.created_by === u.id || u.role === 'creative_lead'; },
-    canAdvanceStatus: function(r) { return r.assignedTo === u.id || r.assigned_to === u.id || u.role === 'creative_lead' || u.role === 'approver'; },
-    canApprove: function() { return u.role === 'creative_lead' || u.role === 'approver'; },
-    canDeleteRequest: function(r) { return r.createdBy === u.id || r.created_by === u.id || u.role === 'creative_lead'; },
+    canEditRequest: function(r) { return r.createdBy === u.id || r.created_by === u.id || u.role === 'creative_lead' || hl === 'admin'; },
+    canAssignRequest: function(r) { return r.createdBy === u.id || r.created_by === u.id || u.role === 'creative_lead' || hl === 'admin'; },
+    canAdvanceStatus: function(r) { return r.assignedTo === u.id || r.assigned_to === u.id || u.role === 'creative_lead' || hl === 'admin' || hl === 'manager'; },
+    canApprove: function(r) {
+      if (hl === 'admin') return true;
+      if (hl === 'manager') return true;
+      if (r && r.approverId === u.id) return true;
+      return u.role === 'creative_lead' || u.role === 'approver';
+    },
+    canDeleteRequest: function(r) { return r.createdBy === u.id || r.created_by === u.id || u.role === 'creative_lead' || hl === 'admin'; },
     canCreateCampaign: function() { return ['requester','creative_lead','approver'].includes(u.role); },
-    canEditCampaign: function(c) { return c.createdBy === u.id || c.created_by === u.id || u.role === 'creative_lead'; },
+    canEditCampaign: function(c) { return c.createdBy === u.id || c.created_by === u.id || u.role === 'creative_lead' || hl === 'admin'; },
     canEditTimesheet: function(userId) { return userId === u.id; },
-    isLead: function() { return u.role === 'creative_lead'; },
+    isLead: function() { return u.role === 'creative_lead' || hl === 'admin'; },
+    isAdmin: function() { return hl === 'admin'; },
+    isManager: function() { return hl === 'manager'; },
+    isManagerOrAdmin: function() { return hl === 'admin' || hl === 'manager'; },
+    canManageHierarchy: function() { return hl === 'admin'; },
   };
 }
 function applyCurrentUserToUI() {

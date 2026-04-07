@@ -221,8 +221,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS reports_to_email TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS location TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS joined_at DATE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS hierarchy_level TEXT DEFAULT 'team';
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS vertical TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS is_expedited BOOLEAN DEFAULT false;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS approver_id TEXT REFERENCES users(id);
 
 ALTER TABLE knowledge_entries ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}';
 ALTER TABLE knowledge_entries ADD COLUMN IF NOT EXISTS reference TEXT;
@@ -281,6 +283,10 @@ UPDATE deliverables SET asset_type_id = 'sm_episode_thumbnail' WHERE asset_type_
 UPDATE deliverables SET asset_type_id = 'cms_thumbnail_refresh' WHERE asset_type_id = 'cms_maintenance';
 `;
 
+const hierarchyBootstrap = `
+UPDATE users SET hierarchy_level = 'admin' WHERE LOWER(email) = 'pronay.roy@hoichoi.tv' AND (hierarchy_level IS NULL OR hierarchy_level = 'team');
+`;
+
 async function migrate() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
@@ -288,6 +294,7 @@ async function migrate() {
     await pool.query(alterations);
     await pool.query(assetTypeMigration);
     await pool.query(seedUsers);
+    await pool.query(hierarchyBootstrap);
     console.log('[migrate] Schema created successfully');
   } catch (err) {
     console.error('[migrate] Error:', err.message);
