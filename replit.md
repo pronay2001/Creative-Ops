@@ -86,10 +86,22 @@ See `.env.example` for full list. Key ones:
 - `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `MAIL_FROM` - Email
 
 ### Database
-PostgreSQL with tables: users, campaigns, requests, deliverables, comments, activity_log, timesheet_entries, timesheet_clock, knowledge_entries, content_schedule. Schema auto-migrates on server start.
+PostgreSQL with tables: users, campaigns, requests, deliverables, comments, activity_log, timesheet_entries, timesheet_clock, knowledge_entries, content_schedule, asset_files. Schema auto-migrates on server start.
 - `requests.vertical` TEXT column stores vertical (hoichoi, SVF, etc.)
 - `timesheet_clock` tracks clock-in/clock-out entries with start/end times, duration, auto-sync to timesheet_entries
 - Asset type ID migration in migrate.js maps old IDs to new taxonomy (e.g. repurpose_reel→scene_cutdown)
+- `asset_files` stores uploaded asset files with version tracking, linked to requests. Files stored in `uploads/` directory on disk.
+
+### Asset Management
+- **Upload**: `POST /api/requests/:id/upload` — multer disk storage, 50MB limit. Only assigned users (top-level or deliverable), leads, or hierarchy admins can upload.
+- **Download**: `GET /api/assets/:fileId/download` — permission check: request creator, assignee, uploader, lead, or hierarchy manager can download.
+- **List files**: `GET /api/requests/:id/files` — returns all uploaded files for a request with version info.
+- Frontend: `App.triggerAssetUpload()` for upload, `App.viewRequestFiles()` for file list modal with download buttons.
+
+### Workload & Timesheet
+- `DataService.getWorkload()` now filters to only show team members with active tasks assigned.
+- `DataService.getActiveTeamMembers()` returns users who have any assigned requests (top-level or deliverable-level).
+- Timesheet user switcher and team overview use `getActiveTeamMembers()` instead of `getDesigners()` to only show people with tasks.
 
 ### Port
 App runs on port 5000 (required for Replit webview).

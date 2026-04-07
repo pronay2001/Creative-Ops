@@ -92,6 +92,19 @@ CREATE TABLE IF NOT EXISTS knowledge_entries (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS asset_files (
+  id TEXT PRIMARY KEY,
+  request_id TEXT REFERENCES requests(id) ON DELETE CASCADE,
+  version INTEGER DEFAULT 1,
+  filename TEXT NOT NULL,
+  original_name TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  file_size BIGINT DEFAULT 0,
+  mime_type TEXT,
+  uploaded_by TEXT REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS content_schedule (
   id SERIAL PRIMARY KEY,
   campaign_id TEXT REFERENCES campaigns(id) ON DELETE CASCADE,

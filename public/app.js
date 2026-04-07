@@ -599,7 +599,7 @@ const App = (() => {
     const idx = stages.indexOf(r.status);
     if (idx < stages.length - 1) {
       DataService.updateRequestStatus(reqId, stages[idx + 1]);
-      DataService.addActivity(reqId, 'u1', 'status_changed', `Moved to ${STATUSES[stages[idx+1]].label}`);
+      DataService.addActivity(reqId, (window.__currentUser && window.__currentUser.id) || '', 'status_changed', `Moved to ${STATUSES[stages[idx+1]].label}`);
       openRequestDetail(reqId);
       if (currentView === 'kanban') { renderView('kanban'); }
     }
@@ -608,15 +608,18 @@ const App = (() => {
   function addComment(reqId) {
     const input = document.getElementById('commentInput');
     if (!input || !input.value.trim()) return;
-    DataService.addComment(reqId, 'u1', input.value.trim());
+    DataService.addComment(reqId, (window.__currentUser && window.__currentUser.id) || '', input.value.trim());
     openRequestDetail(reqId);
   }
 
   /* ── 3b. UPLOAD VERSION ─────────────────────────────────────────── */
   function uploadVersion(reqId) {
-    DataService.addVersion(reqId, 'u1');
-    showToast('Version uploaded successfully', 'success');
-    openRequestDetail(reqId);
+    pendingAssetUploadId = reqId;
+    const input = document.getElementById('assetFileInput');
+    if (input) {
+      input.value = '';
+      input.click();
+    }
   }
 
   /* ── 3c. APPROVAL WORKFLOW ───────────────────────────────────────── */
@@ -645,19 +648,20 @@ const App = (() => {
 
   function handleApproval(reqId, action) {
     closeDropdowns();
+    const cuId = (window.__currentUser && window.__currentUser.id) || '';
     if (action === 'approve') {
       DataService.updateRequestStatus(reqId, 'final_approved');
-      DataService.addActivity(reqId, 'u1', 'approved', 'Final approved');
-      DataService.addComment(reqId, 'u1', 'Approved — looks great, ready to go!');
+      DataService.addActivity(reqId, cuId, 'approved', 'Final approved');
+      DataService.addComment(reqId, cuId, 'Approved — looks great, ready to go!');
       showToast('Request approved', 'success');
     } else if (action === 'changes') {
       DataService.updateRequestStatus(reqId, 'changes_in_progress');
-      DataService.addActivity(reqId, 'u1', 'changes_requested', 'Requested changes');
-      DataService.addComment(reqId, 'u1', 'Some changes needed before final approval.');
+      DataService.addActivity(reqId, cuId, 'changes_requested', 'Requested changes');
+      DataService.addComment(reqId, cuId, 'Some changes needed before final approval.');
       showToast('Changes requested', 'info');
     } else if (action === 'reject') {
-      DataService.addActivity(reqId, 'u1', 'rejected', 'Rejected this version');
-      DataService.addComment(reqId, 'u1', 'This version does not meet requirements. Please revisit the brief.');
+      DataService.addActivity(reqId, cuId, 'rejected', 'Rejected this version');
+      DataService.addComment(reqId, cuId, 'This version does not meet requirements. Please revisit the brief.');
       showToast('Version rejected', 'error');
     }
     openRequestDetail(reqId);
@@ -1639,7 +1643,7 @@ const App = (() => {
     if (raw) {
       raw.goLiveDate = toDate;
       SupabaseClient.updateRequestField(reqId, 'go_live_date', toDate).catch(() => {});
-      DataService.addActivity(reqId, 'u1', 'rescheduled', `Rescheduled go-live to ${formatDate(toDate)}`);
+      DataService.addActivity(reqId, (window.__currentUser && window.__currentUser.id) || '', 'rescheduled', `Rescheduled go-live to ${formatDate(toDate)}`);
       showToast(`Rescheduled to ${formatDate(toDate)}`, 'success');
     }
     _pendingCalDrag = null;
@@ -1848,7 +1852,7 @@ const App = (() => {
               DataService.updateDeliverableStatus(reqId, delId, newStatus);
             } else {
               DataService.updateRequestStatus(reqId, newStatus);
-              DataService.addActivity(reqId, 'u1', 'status_changed', `Moved to ${STATUSES[newStatus].label}`);
+              DataService.addActivity(reqId, (window.__currentUser && window.__currentUser.id) || '', 'status_changed', `Moved to ${STATUSES[newStatus].label}`);
             }
             document.querySelectorAll('.kanban-column-header .kanban-column-count').forEach((cnt) => {
               const body = cnt.closest('.kanban-column').querySelector('.kanban-column-body');
@@ -2180,7 +2184,7 @@ const App = (() => {
         <div class="flex gap-2">
           <button class="btn btn-secondary btn-sm" onclick="App.timesheetThisWeek()">This Week</button>
           ${window.Permissions && window.Permissions.isLead() ? `<select class="filter-select" onchange="App.switchTimesheetUser(this.value)">
-            ${DataService.getDesigners().map(d => `<option value="${d.id}" ${d.id===timesheetUserId?'selected':''}>${d.name}</option>`).join('')}
+            ${DataService.getActiveTeamMembers().map(d => `<option value="${d.id}" ${d.id===timesheetUserId?'selected':''}>${d.name}</option>`).join('')}
           </select>` : ''}
         </div>
       </div>
@@ -2297,7 +2301,7 @@ const App = (() => {
   }
 
   function renderTeamTimesheet(weekStart, weekDays, weekLabel) {
-    const designers = DataService.getDesigners();
+    const designers = DataService.getActiveTeamMembers();
     const targetPerWeek = 40;
 
     const teamData = designers.map(d => {
@@ -2780,14 +2784,15 @@ const App = (() => {
   function renderAssetCard(r) {
     const icon = r.assetType ? r.assetType.icon : 'file';
     const gradientClass = 'asset-gradient-' + icon;
-    const upload = assetUploads[r.id];
-    const hasUpload = upload && upload.dataUrl;
+    const cu = window.__currentUser;
+    const isAssignee = cu && (r.assignedTo === cu.id || (r.deliverables && r.deliverables.some(d => d.assignedTo === cu.id)));
+    const isLead = cu && window.Permissions && window.Permissions.isLead();
+    const isCreator = cu && r.createdBy === cu.id;
+    const canUpload = isAssignee || isLead;
+    const canDownload = isCreator || isAssignee || isLead;
     return `<div class="asset-card-v2">
-      <div class="asset-thumb-v2 ${hasUpload ? '' : gradientClass}" onclick="App.openRequestDetail('${r.id}')">
-        ${hasUpload ? (upload.type === 'video'
-          ? '<video src="' + upload.dataUrl + '" style="width:100%;height:100%;object-fit:cover;" muted></video>'
-          : '<img src="' + upload.dataUrl + '" style="width:100%;height:100%;object-fit:cover;" alt="asset">') 
-          : '<i data-lucide="' + icon + '" class="asset-thumb-icon-v2"></i>'}
+      <div class="asset-thumb-v2 ${gradientClass}" onclick="App.openRequestDetail('${r.id}')">
+        <i data-lucide="${icon}" class="asset-thumb-icon-v2"></i>
       </div>
       <div class="asset-card-body-v2">
         <div class="asset-card-title-v2">${r.title}</div>
@@ -2798,9 +2803,14 @@ const App = (() => {
         </div>
         <div class="asset-card-footer-v2">
           ${r.assignee ? renderAvatar(r.assignee, 'sm') : '<span></span>'}
-          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.triggerAssetUpload('${r.id}')" title="Upload file">
-            <i data-lucide="upload"></i>
-          </button>
+          <div class="flex gap-1">
+            ${canUpload ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.triggerAssetUpload('${r.id}')" title="Upload new version">
+              <i data-lucide="upload"></i>
+            </button>` : ''}
+            ${canDownload ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.viewRequestFiles('${r.id}')" title="View & download files">
+              <i data-lucide="download"></i>
+            </button>` : ''}
+          </div>
         </div>
       </div>
     </div>`;
@@ -2808,6 +2818,12 @@ const App = (() => {
 
   function renderAssetListRow(r) {
     const icon = r.assetType ? r.assetType.icon : 'file';
+    const cu = window.__currentUser;
+    const isAssignee = cu && (r.assignedTo === cu.id || (r.deliverables && r.deliverables.some(d => d.assignedTo === cu.id)));
+    const isLead = cu && window.Permissions && window.Permissions.isLead();
+    const isCreator = cu && r.createdBy === cu.id;
+    const canUpload = isAssignee || isLead;
+    const canDownload = isCreator || isAssignee || isLead;
     return `<tr onclick="App.openRequestDetail('${r.id}')" style="cursor:pointer">
       <td><div class="flex gap-2 items-center"><i data-lucide="${icon}" style="width:14px;height:14px;color:var(--color-text-muted)"></i><span class="text-sm">${r.title}</span></div></td>
       <td class="text-xs text-muted">${r.campaign ? r.campaign.name.substring(0,25) : '\u2014'}</td>
@@ -2815,7 +2831,10 @@ const App = (() => {
       <td>${statusBadge(r.status)}</td>
       <td><span class="asset-version-badge">v${r.latestVersion}</span></td>
       <td>${r.assignee ? renderAvatar(r.assignee, 'sm') : ''}</td>
-      <td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.triggerAssetUpload('${r.id}')" title="Upload file"><i data-lucide="upload"></i></button></td>
+      <td class="flex gap-1">
+        ${canUpload ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.triggerAssetUpload('${r.id}')" title="Upload"><i data-lucide="upload"></i></button>` : ''}
+        ${canDownload ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.viewRequestFiles('${r.id}')" title="Download"><i data-lucide="download"></i></button>` : ''}
+      </td>
     </tr>`;
   }
 
@@ -2899,7 +2918,7 @@ const App = (() => {
       </div>
 
       ${contentHTML}
-      <input type="file" id="assetFileInput" accept="image/*,video/*" style="display:none" onchange="App.handleAssetFile(event)">
+      <input type="file" id="assetFileInput" accept="image/*,video/*,.psd,.ai,.pdf,.zip,.eps,.tif,.tiff,.indd,.fig,.svg" style="display:none" onchange="App.handleAssetFile(event)">
     </div>`;
   }
 
@@ -2933,31 +2952,115 @@ const App = (() => {
     }
   }
 
-  function handleAssetFile(event) {
+  async function handleAssetFile(event) {
     const file = event.target.files && event.target.files[0];
     if (!file || !pendingAssetUploadId) return;
 
-    const isVideo = file.type.startsWith('video/');
-    const isImage = file.type.startsWith('image/');
-    if (!isVideo && !isImage) {
-      showToast('Please upload an image or video file', 'error');
+    const formData = new FormData();
+    formData.append('file', file);
+
+    showToast(`Uploading ${file.name}...`, 'info');
+
+    try {
+      const resp = await fetch(`/api/requests/${pendingAssetUploadId}/upload`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'same-origin'
+      });
+      const result = await resp.json();
+      if (!resp.ok) {
+        showToast(result.error || 'Upload failed', 'error');
+        return;
+      }
+
+      DataService.addVersion(pendingAssetUploadId, window.__currentUser ? window.__currentUser.id : '');
+      showToast(`Uploaded ${file.name} (v${result.version})`, 'success');
+      document.getElementById('viewContainer').innerHTML = renderAssets();
+      lucide.createIcons();
+      const detailEl = document.getElementById('detailPanel');
+      if (detailEl && detailEl.classList.contains('open')) openRequestDetail(pendingAssetUploadId);
+    } catch (err) {
+      showToast('Upload failed: ' + err.message, 'error');
+    } finally {
+      pendingAssetUploadId = null;
+    }
+  }
+
+  async function downloadAsset(fileId, filename) {
+    try {
+      const resp = await fetch(`/api/assets/${fileId}/download`, { credentials: 'same-origin' });
+      if (!resp.ok) {
+        const err = await resp.json();
+        showToast(err.error || 'Download failed', 'error');
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'asset';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      showToast('Download failed: ' + err.message, 'error');
+    }
+  }
+
+  async function loadRequestFiles(reqId) {
+    try {
+      const resp = await fetch(`/api/requests/${reqId}/files`, { credentials: 'same-origin' });
+      if (!resp.ok) return [];
+      return await resp.json();
+    } catch (err) {
+      return [];
+    }
+  }
+
+  async function viewRequestFiles(reqId) {
+    const files = await loadRequestFiles(reqId);
+    const req = DataService.getRequestById(reqId);
+    const title = req ? req.title : 'Request';
+
+    if (files.length === 0) {
+      showToast('No files uploaded yet for this request', 'info');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = function(e) {
-      assetUploads[pendingAssetUploadId] = {
-        type: isVideo ? 'video' : 'image',
-        dataUrl: e.target.result,
-        filename: file.name
-      };
-      showToast(`Uploaded ${file.name}`, 'success');
-      // Re-render the assets view
-      document.getElementById('viewContainer').innerHTML = renderAssets();
-      lucide.createIcons();
-      pendingAssetUploadId = null;
-    };
-    reader.readAsDataURL(file);
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;';
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div style="background:var(--color-surface-2);border-radius:var(--radius-lg);padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3 style="margin:0;font-family:var(--font-heading);font-size:1.1rem;">Files — ${title}</h3>
+          <button class="btn btn-ghost btn-sm" onclick="this.closest('.modal-overlay').remove()"><i data-lucide="x"></i></button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${files.map(f => `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--color-surface-3);border-radius:var(--radius-md);">
+              <div>
+                <div style="font-size:0.875rem;font-weight:500;">${f.filename}</div>
+                <div style="font-size:0.75rem;color:var(--color-text-muted);">v${f.version} · ${formatSize(f.fileSize)} · by ${f.uploaderName || 'Unknown'} · ${new Date(f.uploadedAt).toLocaleDateString()}</div>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="App.downloadAsset('${f.id}', '${f.filename.replace(/'/g, "\\'")}')">
+                <i data-lucide="download"></i>
+              </button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
   }
 
   /* ── 11. SEARCH / COMMAND PALETTE (Cmd+K) ─────────────────────── */
@@ -3515,7 +3618,7 @@ const App = (() => {
     uploadVersion, toggleApprovalDropdown, handleApproval,
     toggleAssigneeDropdown, assignToDesigner, toggleApproverDropdown, setApprover, changeHierarchy, showToast,
     openNewCampaignModal,
-    filterAssets, clearAssetFilters, triggerAssetUpload, handleAssetFile, setAssetView,
+    filterAssets, clearAssetFilters, triggerAssetUpload, handleAssetFile, setAssetView, viewRequestFiles, downloadAsset,
     openCommandPalette, closeCommandPalette, openSearchResult,
     saveSupabaseConfig, testSupabaseConnection, exportData, importData, handleImportFile, resetData, handleCSVSelect, importCSV, _pickAssignUser,
     updateTimesheetHours, switchTimesheetTab, switchTimesheetUser,

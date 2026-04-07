@@ -96,7 +96,13 @@ const DataService = (() => {
     if (filters.status) results = results.filter(r => r.status === filters.status);
     if (filters.campaignId) results = results.filter(r => r.campaignId === filters.campaignId);
     if (filters.assetTypeId) results = results.filter(r => r.assetTypeId === filters.assetTypeId);
-    if (filters.assignedTo) results = results.filter(r => r.assignedTo === filters.assignedTo);
+    if (filters.assignedTo) {
+      const uid = filters.assignedTo;
+      results = results.filter(r =>
+        r.assignedTo === uid ||
+        (r.deliverables && r.deliverables.some(d => d.assignedTo === uid))
+      );
+    }
     if (filters.platform) results = results.filter(r => r.platforms.includes(filters.platform));
     if (filters.priority) results = results.filter(r => r.priority === filters.priority);
     if (filters.search) {
@@ -244,14 +250,26 @@ const DataService = (() => {
     return USERS.filter(u => ['designer','motion_designer','video_editor','creative_lead'].includes(u.role));
   }
 
+  function getActiveTeamMembers() {
+    const doneStatuses = ['final_approved', 'scheduled', 'live'];
+    return USERS.filter(u => {
+      return REQUESTS.some(r => {
+        const enriched = enrichRequest(r);
+        if (r.assignedTo === u.id && !doneStatuses.includes(enriched.computedStatus || r.status)) return true;
+        return enriched.deliverables && enriched.deliverables.some(d =>
+          d.assignedTo === u.id && !doneStatuses.includes(d.status)
+        );
+      });
+    });
+  }
+
   function getWorkload() {
     const designers = getDesigners();
     return designers.map(d => {
-      // Count deliverables assigned to this designer (not just top-level requests)
       let deliverableCount = 0;
       const activeReqs = REQUESTS.filter(r => {
         const enriched = enrichRequest(r);
-        // Check if any deliverable is assigned to this designer and is active
+        const isTopLevel = r.assignedTo === d.id && !['final_approved','scheduled','live'].includes(enriched.computedStatus || r.status);
         const hasActiveDeliverable = enriched.deliverables.some(del =>
           del.assignedTo === d.id && !['final_approved','scheduled','live'].includes(del.status)
         );
@@ -259,13 +277,15 @@ const DataService = (() => {
           deliverableCount += enriched.deliverables.filter(del =>
             del.assignedTo === d.id && !['final_approved','scheduled','live'].includes(del.status)
           ).length;
+        } else if (isTopLevel) {
+          deliverableCount += 1;
         }
-        return hasActiveDeliverable;
+        return hasActiveDeliverable || isTopLevel;
       }).map(enrichRequest);
       const load = deliverableCount;
       const capacityStatus = load >= d.capacity ? 'over' : load >= d.capacity - 1 ? 'at' : 'under';
       return { ...d, activeRequests: activeReqs, activeCount: load, deliverableCount, capacityStatus };
-    });
+    }).filter(d => d.activeCount > 0);
   }
 
   // ── KPIs ────────────────────────────────────────────────────────────────
@@ -598,6 +618,7 @@ const DataService = (() => {
     getUsers,
     getUserById,
     getDesigners,
+    getActiveTeamMembers,
     getWorkload,
     getDashboardKPIs,
     getStatusDistribution,

@@ -10,6 +10,26 @@ const { migrate } = require('./db/migrate');
 const crypto = require('crypto');
 
 const csvUpload = multer({ limits: { fileSize: 5 * 1024 * 1024 }, storage: multer.memoryStorage() });
+const fs = require('fs');
+const assetUpload = multer({
+  limits: { fileSize: 50 * 1024 * 1024 },
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const dir = path.join(__dirname, 'uploads');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      cb(null, `${Date.now()}_${crypto.randomBytes(8).toString('hex')}${ext}`);
+    }
+  }),
+  fileFilter: (req, file, cb) => {
+    const allowed = /\.(jpg|jpeg|png|gif|webp|svg|mp4|mov|avi|wmv|psd|ai|pdf|zip|eps|tif|tiff|bmp|indd|fig)$/i;
+    if (allowed.test(path.extname(file.originalname))) cb(null, true);
+    else cb(new Error('File type not allowed'), false);
+  }
+});
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -878,6 +898,130 @@ app.post('/api/requests/:id/status', async (req, res) => {
         fireEmail(recipients, `[CreativeOps] Status update: ${request.title} → ${status}`, html);
       }
     }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Asset Files ──────────────────────────────────────────────────────────────
+app.post('/api/requests/:id/upload', assetUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const { id } = req.params;
+    const user = await getSessionUser(req);
+    const request = await pool.query('SELECT * FROM requests WHERE id = $1', [id]);
+    if (!request.rows[0]) return res.status(404).json({ error: 'Request not found' });
+
+    const r = request.rows[0];
+    const isAssignee = r.assigned_to === req.session.userId;
+    const isLead = user && LEAD_ROLES.includes(user.role);
+    const isHierarchyAdmin = user && user.hierarchy_level === 'admin';
+    const hasDeliverableAssigned = await pool.query(
+      'SELECT 1 FROM deliverables WHERE request_id = $1 AND assigned_to = $2 LIMIT 1', [id, req.session.userId]
+    );
+    const isDeliverableAssignee = hasDeliverableAssigned.rows.length > 0;
+
+    if (!isAssignee && !isDeliverableAssignee && !isLead && !isHierarchyAdmin) {
+      fs.unlinkSync(req.file.path);
+      return res.status(403).json({ error: 'Only the assigned person can upload assets for this request' });
+    }
+
+    const existing = await pool.query('SELECT COALESCE(MAX(version),0) as max_ver FROM asset_files WHERE request_id = $1', [id]);
+    const nextVersion = (existing.rows[0].max_ver || 0) + 1;
+    const fileId = 'af_' + Date.now();
+
+    await pool.query(
+      `INSERT INTO asset_files (id, request_id, version, filename, original_name, file_path, file_size, mime_type, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [fileId, id, nextVersion, req.file.filename, req.file.originalname, req.file.path, req.file.size, req.file.mimetype, req.session.userId]
+    );
+
+    await pool.query(
+      `INSERT INTO activity_log (request_id, user_id, action, details) VALUES ($1, $2, 'uploaded', $3)`,
+      [id, req.session.userId, JSON.stringify({ version: nextVersion, filename: req.file.originalname })]
+    );
+
+    res.json({
+      id: fileId,
+      requestId: id,
+      version: nextVersion,
+      filename: req.file.originalname,
+      fileSize: req.file.size,
+      mimeType: req.file.mimetype,
+      uploadedBy: req.session.userId,
+      uploadedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    if (req.file && req.file.path) try { fs.unlinkSync(req.file.path); } catch(e) {}
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/requests/:id/files', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await getSessionUser(req);
+    const request = await pool.query('SELECT created_by, assigned_to FROM requests WHERE id = $1', [id]);
+    if (!request.rows[0]) return res.status(404).json({ error: 'Request not found' });
+    const r = request.rows[0];
+    const isCreator = r.created_by === req.session.userId;
+    const isAssignee = r.assigned_to === req.session.userId;
+    const isLead = user && LEAD_ROLES.includes(user.role);
+    const isHierarchyManager = user && (user.hierarchy_level === 'admin' || user.hierarchy_level === 'manager');
+    const delCheck = await pool.query('SELECT 1 FROM deliverables WHERE request_id = $1 AND assigned_to = $2 LIMIT 1', [id, req.session.userId]);
+    const isDelAssignee = delCheck.rows.length > 0;
+    if (!isCreator && !isAssignee && !isLead && !isHierarchyManager && !isDelAssignee) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    const files = await pool.query(
+      `SELECT af.*, u.name as uploader_name FROM asset_files af LEFT JOIN users u ON u.id = af.uploaded_by WHERE af.request_id = $1 ORDER BY af.version DESC`,
+      [id]
+    );
+    res.json(files.rows.map(f => ({
+      id: f.id,
+      requestId: f.request_id,
+      version: f.version,
+      filename: f.original_name,
+      fileSize: f.file_size,
+      mimeType: f.mime_type,
+      uploadedBy: f.uploaded_by,
+      uploaderName: f.uploader_name,
+      uploadedAt: f.created_at
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/assets/:fileId/download', async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const user = await getSessionUser(req);
+    const file = await pool.query('SELECT af.*, r.created_by, r.assigned_to FROM asset_files af JOIN requests r ON r.id = af.request_id WHERE af.id = $1', [fileId]);
+    if (!file.rows[0]) return res.status(404).json({ error: 'File not found' });
+
+    const f = file.rows[0];
+    const isCreator = f.created_by === req.session.userId;
+    const isAssignee = f.assigned_to === req.session.userId;
+    const isUploader = f.uploaded_by === req.session.userId;
+    const isLead = user && LEAD_ROLES.includes(user.role);
+    const isHierarchyManager = user && (user.hierarchy_level === 'admin' || user.hierarchy_level === 'manager');
+    const hasDelAssigned = await pool.query(
+      'SELECT 1 FROM deliverables WHERE request_id = $1 AND assigned_to = $2 LIMIT 1', [f.request_id, req.session.userId]
+    );
+    const isDeliverableAssignee = hasDelAssigned.rows.length > 0;
+
+    if (!isCreator && !isAssignee && !isUploader && !isLead && !isHierarchyManager && !isDeliverableAssignee) {
+      return res.status(403).json({ error: 'You do not have permission to download this file' });
+    }
+
+    if (!fs.existsSync(f.file_path)) {
+      return res.status(404).json({ error: 'File not found on disk' });
+    }
+
+    res.setHeader('Content-Disposition', `attachment; filename="${f.original_name}"`);
+    res.setHeader('Content-Type', f.mime_type || 'application/octet-stream');
+    res.sendFile(path.resolve(f.file_path));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
