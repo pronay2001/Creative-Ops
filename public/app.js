@@ -258,9 +258,6 @@ const App = (() => {
         </div>
       </div>
 
-      <div class="attribution-footer" style="margin-top:var(--space-8)">
-        <a href="https://www.perplexity.ai/computer" target="_blank" rel="noopener noreferrer">Created with Perplexity Computer</a>
-      </div>
     </div>`;
   }
 
@@ -2751,9 +2748,6 @@ const App = (() => {
         </div>
       </div>
 
-      <div class="attribution-footer" style="margin-top:var(--space-8)">
-        <a href="https://www.perplexity.ai/computer" target="_blank" rel="noopener noreferrer">Created with Perplexity Computer</a>
-      </div>
     </div>`;
   }
 

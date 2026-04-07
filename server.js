@@ -77,6 +77,26 @@ const LEAD_ROLES = ['creative_lead'];
 const APPROVER_ROLES = ['creative_lead', 'approver'];
 const HIERARCHY_LEVELS = ['admin', 'manager', 'team'];
 
+async function enrichRequestForEmail(req) {
+  const r = { ...req };
+  try {
+    if (r.campaign_id) {
+      const c = await pool.query('SELECT name FROM campaigns WHERE id = $1', [r.campaign_id]);
+      if (c.rows[0]) r.campaign_name = c.rows[0].name;
+    }
+    if (r.assigned_to) {
+      const a = await pool.query('SELECT name FROM users WHERE id = $1', [r.assigned_to]);
+      if (a.rows[0]) r.assignee_name = a.rows[0].name;
+    }
+    if (r.created_by) {
+      const cr = await pool.query('SELECT name FROM users WHERE id = $1', [r.created_by]);
+      if (cr.rows[0]) r.creator_name = cr.rows[0].name;
+    }
+  } catch (_) {}
+  return r;
+}
+
+
 function requireAuth(req, res, next) {
   if (!req.session.userId) {
     return res.status(401).json({ error: 'Not logged in' });
@@ -620,7 +640,8 @@ app.post('/api/requests', async (req, res) => {
       if (emailService && emailTemplates && assignedTo) {
         const assignee = await pool.query('SELECT * FROM users WHERE id = $1', [assignedTo]);
         if (assignee.rows[0]) {
-          const html = emailTemplates.taskAssignment(row, assignee.rows[0]);
+          const enrichedRow = await enrichRequestForEmail(row);
+          const html = emailTemplates.taskAssignment(enrichedRow, assignee.rows[0]);
           fireEmail(
             [{ address: assignee.rows[0].email, name: assignee.rows[0].name }],
             `[CreativeOps] New task assigned: ${title}`,
@@ -756,7 +777,8 @@ app.patch('/api/requests/:id', async (req, res) => {
           if (c.rows[0]) recipients.push({ address: c.rows[0].email, name: c.rows[0].name });
         }
         if (recipients.length) {
-          const html = emailTemplates.statusChange(updated, oldData.status, fields.status);
+          const enrichedUpd = await enrichRequestForEmail(updated);
+          const html = emailTemplates.statusChange(enrichedUpd, oldData.status, fields.status);
           fireEmail(recipients, `[CreativeOps] Status update: ${updated.title} → ${fields.status}`, html);
         }
       }
@@ -770,7 +792,8 @@ app.patch('/api/requests/:id', async (req, res) => {
       if (emailService && emailTemplates) {
         const assignee = await pool.query('SELECT * FROM users WHERE id = $1', [fields.assignedTo]);
         if (assignee.rows[0]) {
-          const html = emailTemplates.taskAssignment(updated, assignee.rows[0]);
+          const enrichedUpd2 = await enrichRequestForEmail(updated);
+          const html = emailTemplates.taskAssignment(enrichedUpd2, assignee.rows[0]);
           fireEmail(
             [{ address: assignee.rows[0].email, name: assignee.rows[0].name }],
             `[CreativeOps] New task assigned: ${updated.title}`,
@@ -839,7 +862,8 @@ app.post('/api/requests/:id/assign', async (req, res) => {
     if (emailService && emailTemplates && userId) {
       const assignee = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
       if (assignee.rows[0]) {
-        const html = emailTemplates.taskAssignment(updated, assignee.rows[0]);
+        const enrichedDel = await enrichRequestForEmail(updated);
+        const html = emailTemplates.taskAssignment(enrichedDel, assignee.rows[0]);
         fireEmail(
           [{ address: assignee.rows[0].email, name: assignee.rows[0].name }],
           `[CreativeOps] New task assigned: ${updated.title}`,
@@ -894,7 +918,8 @@ app.post('/api/requests/:id/status', async (req, res) => {
         if (c.rows[0]) recipients.push({ address: c.rows[0].email, name: c.rows[0].name });
       }
       if (recipients.length) {
-        const html = emailTemplates.statusChange(request, oldStatus, status);
+        const enrichedReq = await enrichRequestForEmail(request);
+        const html = emailTemplates.statusChange(enrichedReq, oldStatus, status);
         fireEmail(recipients, `[CreativeOps] Status update: ${request.title} → ${status}`, html);
       }
     }
@@ -1076,7 +1101,8 @@ app.post('/api/requests/:id/comments', async (req, res) => {
         const users = await pool.query('SELECT * FROM users WHERE id = ANY($1)', [Array.from(recipientIds)]);
         const commenter = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
         const recipients = users.rows.map(u => ({ address: u.email, name: u.name }));
-        const html = emailTemplates.newComment(request.rows[0], commenter.rows[0], text);
+        const enrichedCmt = await enrichRequestForEmail(request.rows[0]);
+        const html = emailTemplates.newComment(enrichedCmt, commenter.rows[0], text);
         fireEmail(recipients, `[CreativeOps] New comment on: ${request.rows[0].title}`, html);
       }
     }
@@ -1185,7 +1211,8 @@ app.post('/api/deliverables/:id/assign', async (req, res) => {
       const request = await pool.query('SELECT * FROM requests WHERE id = $1', [del.request_id]);
       const assignee = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
       if (assignee.rows[0] && request.rows[0]) {
-        const html = emailTemplates.taskAssignment(request.rows[0], assignee.rows[0]);
+        const enrichedDelReq = await enrichRequestForEmail(request.rows[0]);
+        const html = emailTemplates.taskAssignment(enrichedDelReq, assignee.rows[0]);
         fireEmail(
           [{ address: assignee.rows[0].email, name: assignee.rows[0].name }],
           `[CreativeOps] New task assigned: ${request.rows[0].title}`,

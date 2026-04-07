@@ -1,5 +1,3 @@
-const APP_URL = process.env.APP_URL || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : 'https://localhost:5000');
-
 function layout(content) {
   return `<!DOCTYPE html>
 <html>
@@ -25,11 +23,9 @@ ${content}
 </body></html>`;
 }
 
-function ctaButton(text, url) {
-  return `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:24px 0;">
-<tr><td style="background:linear-gradient(-60deg,#d20820,#6d0550);border-radius:10px;padding:12px 28px;">
-<a href="${url}" style="color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;">${text}</a>
-</td></tr></table>`;
+function detailRow(label, value) {
+  if (!value) return '';
+  return `<tr><td style="padding:4px 0;"><span style="color:#6b7280;font-size:13px;">${label}:</span></td><td style="padding:4px 12px;"><span style="color:#e2e8f0;font-size:13px;">${esc(String(value))}</span></td></tr>`;
 }
 
 function priorityBadge(priority) {
@@ -47,28 +43,48 @@ function statusLabel(status) {
   return (status || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
+function formatDate(d) {
+  if (!d) return 'Not set';
+  try { return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return d; }
+}
+
+function briefBlock(brief) {
+  if (!brief || typeof brief === 'string') return '';
+  const parts = [];
+  if (brief.objective) parts.push(`<p style="color:#9ca3af;font-size:13px;margin:0 0 6px;"><strong style="color:#e2e8f0;">Objective:</strong> ${esc(brief.objective)}</p>`);
+  if (brief.keyMessage) parts.push(`<p style="color:#9ca3af;font-size:13px;margin:0 0 6px;"><strong style="color:#e2e8f0;">Key Message:</strong> ${esc(brief.keyMessage)}</p>`);
+  if (brief.targetGroup) parts.push(`<p style="color:#9ca3af;font-size:13px;margin:0 0 6px;"><strong style="color:#e2e8f0;">Target Group:</strong> ${esc(brief.targetGroup)}</p>`);
+  if (brief.mandatories) parts.push(`<p style="color:#9ca3af;font-size:13px;margin:0 0 6px;"><strong style="color:#e2e8f0;">Mandatories:</strong> ${esc(brief.mandatories)}</p>`);
+  if (brief.languages && brief.languages.length) parts.push(`<p style="color:#9ca3af;font-size:13px;margin:0 0 6px;"><strong style="color:#e2e8f0;">Languages:</strong> ${brief.languages.join(', ')}</p>`);
+  if (brief.copyDraft) parts.push(`<p style="color:#9ca3af;font-size:13px;margin:0;"><strong style="color:#e2e8f0;">Copy Draft:</strong> <em>${esc(brief.copyDraft)}</em></p>`);
+  if (!parts.length) return '';
+  return `<div style="border-top:1px solid #2a3441;padding-top:12px;margin-top:12px;">${parts.join('')}</div>`;
+}
+
 function taskAssignment(request, assignee) {
-  const url = `${APP_URL}/#requests/${request.id}`;
   return layout(`
 <h2 style="color:#e2e8f0;font-size:18px;margin:0 0 8px;">New Task Assigned</h2>
 <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">Hi ${esc(assignee.name)}, you have been assigned a new task.</p>
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#222222;border-radius:10px;padding:16px;margin-bottom:16px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#222222;border-radius:10px;margin-bottom:16px;">
 <tr><td style="padding:16px;">
 <p style="color:#e2e8f0;font-size:16px;font-weight:600;margin:0 0 12px;">${esc(request.title)}</p>
 <table role="presentation" cellspacing="0" cellpadding="0" border="0">
 <tr><td style="padding:4px 0;"><span style="color:#6b7280;font-size:13px;">Priority:</span></td><td style="padding:4px 12px;">${priorityBadge(request.priority)}</td></tr>
-<tr><td style="padding:4px 0;"><span style="color:#6b7280;font-size:13px;">Deadline:</span></td><td style="padding:4px 12px;"><span style="color:#e2e8f0;font-size:13px;">${request.internal_deadline || request.go_live_date || 'Not set'}</span></td></tr>
-<tr><td style="padding:4px 0;"><span style="color:#6b7280;font-size:13px;">Asset Type:</span></td><td style="padding:4px 12px;"><span style="color:#e2e8f0;font-size:13px;">${request.asset_type_id || ''}</span></td></tr>
+${detailRow('Status', statusLabel(request.status))}
+${detailRow('Asset Type', request.asset_type_id)}
+${detailRow('Campaign', request.campaign_name || (request.campaign && request.campaign.name))}
+${detailRow('Go-Live Date', formatDate(request.go_live_date))}
+${detailRow('Internal Deadline', formatDate(request.internal_deadline))}
+${detailRow('Created By', request.creator_name)}
+${detailRow('Vertical', request.vertical)}
 </table>
-${request.brief && request.brief.objective ? `<p style="color:#9ca3af;font-size:13px;margin:12px 0 0;border-top:1px solid #2a3441;padding-top:12px;">${esc(typeof request.brief === 'string' ? '' : request.brief.objective)}</p>` : ''}
+${briefBlock(request.brief)}
 </td></tr>
 </table>
-${ctaButton('View Task', url)}
   `);
 }
 
 function statusChange(request, oldStatus, newStatus) {
-  const url = `${APP_URL}/#requests/${request.id}`;
   const isApproval = newStatus === 'final_approved';
   const isRegression = ['intake', 'in_progress', 'changes_in_progress'].includes(newStatus) && ['under_review', 'final_approved'].includes(oldStatus);
 
@@ -80,18 +96,29 @@ function statusChange(request, oldStatus, newStatus) {
 <h2 style="color:#e2e8f0;font-size:18px;margin:0 0 8px;">${esc(heading)}</h2>
 <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">${esc(request.title)}</p>
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#222222;border-radius:10px;margin-bottom:16px;">
-<tr><td style="padding:16px;text-align:center;">
+<tr><td style="padding:16px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-bottom:12px;">
+<tr><td style="text-align:center;">
 <span style="color:#6b7280;font-size:14px;">${esc(statusLabel(oldStatus))}</span>
 <span style="color:#d20820;font-size:18px;margin:0 16px;">→</span>
 <span style="color:#d20820;font-size:14px;font-weight:600;">${esc(statusLabel(newStatus))}</span>
 </td></tr>
 </table>
-${ctaButton('View Task', url)}
+<table role="presentation" cellspacing="0" cellpadding="0" border="0">
+<tr><td style="padding:4px 0;"><span style="color:#6b7280;font-size:13px;">Priority:</span></td><td style="padding:4px 12px;">${priorityBadge(request.priority)}</td></tr>
+${detailRow('Asset Type', request.asset_type_id)}
+${detailRow('Campaign', request.campaign_name || (request.campaign && request.campaign.name))}
+${detailRow('Go-Live Date', formatDate(request.go_live_date))}
+${detailRow('Internal Deadline', formatDate(request.internal_deadline))}
+${detailRow('Assigned To', request.assignee_name)}
+${detailRow('Vertical', request.vertical)}
+</table>
+</td></tr>
+</table>
   `);
 }
 
 function newComment(request, commenter, commentText) {
-  const url = `${APP_URL}/#requests/${request.id}`;
   const commenterName = commenter ? commenter.name : 'Someone';
   return layout(`
 <h2 style="color:#e2e8f0;font-size:18px;margin:0 0 8px;">New Comment</h2>
@@ -99,15 +126,21 @@ function newComment(request, commenter, commentText) {
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#222222;border-radius:10px;margin-bottom:16px;">
 <tr><td style="padding:16px;">
 <p style="color:#d20820;font-size:13px;font-weight:600;margin:0 0 8px;">${esc(commenterName)}</p>
-<p style="color:#e2e8f0;font-size:14px;margin:0;line-height:1.5;">${esc(commentText)}</p>
+<p style="color:#e2e8f0;font-size:14px;margin:0 0 12px;line-height:1.5;">${esc(commentText)}</p>
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-top:1px solid #2a3441;padding-top:8px;">
+<tr><td style="padding:8px 0 0;">
+<span style="color:#6b7280;font-size:12px;">Task: ${esc(request.title)}</span><br>
+<span style="color:#6b7280;font-size:12px;">Priority: </span>${priorityBadge(request.priority)}
+</td></tr>
+${detailRow('Asset Type', request.asset_type_id)}
+${detailRow('Deadline', formatDate(request.internal_deadline || request.go_live_date))}
+</table>
 </td></tr>
 </table>
-${ctaButton('Reply', url)}
   `);
 }
 
 function approvalDecision(request, approver, isApproved, comment) {
-  const url = `${APP_URL}/#requests/${request.id}`;
   const heading = isApproved ? 'Task Approved!' : 'Changes Needed';
   const color = isApproved ? '#2dd4bf' : '#fbbf24';
   const approverName = approver ? approver.name : 'An approver';
@@ -117,11 +150,19 @@ function approvalDecision(request, approver, isApproved, comment) {
 <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">${esc(request.title)}</p>
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#222222;border-radius:10px;margin-bottom:16px;">
 <tr><td style="padding:16px;">
-<p style="color:#e2e8f0;font-size:14px;margin:0 0 8px;"><strong>${esc(approverName)}</strong> ${isApproved ? 'approved this task' : 'requested changes'}</p>
-${comment ? `<p style="color:#9ca3af;font-size:13px;margin:8px 0 0;border-top:1px solid #2a3441;padding-top:8px;">${esc(comment)}</p>` : ''}
+<p style="color:#e2e8f0;font-size:14px;margin:0 0 12px;"><strong>${esc(approverName)}</strong> ${isApproved ? 'approved this task' : 'requested changes'}</p>
+${comment ? `<p style="color:#9ca3af;font-size:13px;margin:0 0 12px;border-top:1px solid #2a3441;padding-top:8px;">${esc(comment)}</p>` : ''}
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-top:1px solid #2a3441;padding-top:8px;">
+<tr><td style="padding:4px 0;"><span style="color:#6b7280;font-size:13px;">Priority:</span></td><td style="padding:4px 12px;">${priorityBadge(request.priority)}</td></tr>
+${detailRow('Asset Type', request.asset_type_id)}
+${detailRow('Campaign', request.campaign_name || (request.campaign && request.campaign.name))}
+${detailRow('Go-Live Date', formatDate(request.go_live_date))}
+${detailRow('Internal Deadline', formatDate(request.internal_deadline))}
+${detailRow('Assigned To', request.assignee_name)}
+${detailRow('Vertical', request.vertical)}
+</table>
 </td></tr>
 </table>
-${ctaButton(isApproved ? 'View Task' : 'Make Changes', url)}
   `);
 }
 
