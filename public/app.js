@@ -2712,21 +2712,34 @@ const App = (() => {
 
       <div class="settings-section">
         <h2>Team Directory</h2>
+        <div style="margin-bottom:var(--space-3)">
+          <input type="text" class="form-input" id="teamDirSearch" placeholder="Search by name or email…" oninput="App.filterTeamDirectory()" style="max-width:320px;font-size:13px;">
+        </div>
         <div class="data-table-container">
-          <table class="data-table settings-table">
-            <thead><tr><th>Name</th><th>Email</th><th>Designation</th><th>Hierarchy</th><th>Reports To</th><th>Status</th>${window.Permissions && window.Permissions.canManageHierarchy() ? '<th>Actions</th>' : ''}</tr></thead>
+          <table class="data-table settings-table" id="teamDirTable">
+            <thead><tr><th>Name</th><th>Email</th><th>Designation</th><th>Role</th><th>Hierarchy</th><th>Reports To</th><th>Status</th>${window.Permissions && window.Permissions.canManageHierarchy() ? '<th>Actions</th>' : ''}</tr></thead>
             <tbody>
               ${users.map(u => {
                 const hlBadge = u.hierarchyLevel === 'admin' ? '<span class="badge badge-red" style="font-size:10px">Admin</span>' : u.hierarchyLevel === 'manager' ? '<span class="badge badge-blue" style="font-size:10px">Manager</span>' : '<span class="badge badge-gray" style="font-size:10px">Team</span>';
-                return `<tr>
+                const roleLabel = { creative_lead: 'Creative Lead', designer: 'Designer', motion_designer: 'Motion Designer', video_editor: 'Video Editor', requester: 'Requester', approver: 'Approver' };
+                const roleBadge = u.role === 'creative_lead' ? 'badge-orange' : u.role === 'approver' ? 'badge-blue' : u.role === 'requester' ? 'badge-green' : 'badge-gray';
+                return `<tr data-search="${(u.name + ' ' + u.email).toLowerCase()}">
                 <td><div class="flex gap-2 items-center">${renderAvatar(u,'sm')} ${u.name}</div></td>
                 <td class="text-xs text-muted">${u.email}</td>
                 <td class="text-xs">${u.designation || '—'}</td>
+                <td>${window.Permissions && window.Permissions.canManageHierarchy() ? `<select class="form-select" style="font-size:11px;padding:2px 6px;min-width:120px;height:28px" onchange="App.changeRole('${u.id}', this.value)">
+                    <option value="requester" ${u.role === 'requester' ? 'selected' : ''}>Requester</option>
+                    <option value="designer" ${u.role === 'designer' ? 'selected' : ''}>Designer</option>
+                    <option value="motion_designer" ${u.role === 'motion_designer' ? 'selected' : ''}>Motion Designer</option>
+                    <option value="video_editor" ${u.role === 'video_editor' ? 'selected' : ''}>Video Editor</option>
+                    <option value="creative_lead" ${u.role === 'creative_lead' ? 'selected' : ''}>Creative Lead</option>
+                    <option value="approver" ${u.role === 'approver' ? 'selected' : ''}>Approver</option>
+                  </select>` : `<span class="badge ${roleBadge}" style="font-size:10px">${roleLabel[u.role] || u.role}</span>`}</td>
                 <td>${hlBadge}</td>
                 <td class="text-xs text-muted">${u.reportsToName || '—'}</td>
                 <td>${u.isActive !== false ? '<span class="badge badge-green" style="font-size:10px">Active</span>' : '<span class="badge badge-gray" style="font-size:10px">Inactive</span>'}</td>
                 ${window.Permissions && window.Permissions.canManageHierarchy() ? `<td>
-                  <select class="form-select" style="font-size:11px;padding:2px 6px;min-width:90px;height:28px" onchange="App.changeHierarchy('${u.id}', this.value)" ${u.id === window.__currentUser?.id ? '' : ''}>
+                  <select class="form-select" style="font-size:11px;padding:2px 6px;min-width:90px;height:28px" onchange="App.changeHierarchy('${u.id}', this.value)">
                     <option value="team" ${u.hierarchyLevel === 'team' ? 'selected' : ''}>Team</option>
                     <option value="manager" ${u.hierarchyLevel === 'manager' ? 'selected' : ''}>Manager</option>
                     <option value="admin" ${u.hierarchyLevel === 'admin' ? 'selected' : ''}>Admin</option>
@@ -2852,6 +2865,34 @@ const App = (() => {
       showToast(e.message, 'error');
       renderView('settings');
     }
+  }
+
+  async function changeRole(userId, role) {
+    try {
+      const res = await fetch(`/api/users/${userId}/role`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update role');
+      const user = DataService.getUserById(userId);
+      if (user) user.role = role;
+      const roleLabels = { creative_lead: 'Creative Lead', designer: 'Designer', motion_designer: 'Motion Designer', video_editor: 'Video Editor', requester: 'Requester', approver: 'Approver' };
+      showToast(`${data.name} is now ${roleLabels[role] || role}`, 'success');
+    } catch (e) {
+      showToast(e.message, 'error');
+      renderView('settings');
+    }
+  }
+
+  function filterTeamDirectory() {
+    const q = (document.getElementById('teamDirSearch')?.value || '').toLowerCase().trim();
+    const rows = document.querySelectorAll('#teamDirTable tbody tr');
+    rows.forEach(row => {
+      const searchText = row.getAttribute('data-search') || '';
+      row.style.display = !q || searchText.includes(q) ? '' : 'none';
+    });
   }
 
   // Keep stubs so old references don't crash
@@ -3694,7 +3735,7 @@ const App = (() => {
     prevMonth, nextMonth, calendarToday, showDayPopup, confirmCalendarDrag, cancelCalendarDrag, toggleCalendarMine,
     showWorkloadDetail, focusSearch, kanbanCardClick, workloadCardClick,
     uploadVersion, toggleApprovalDropdown, handleApproval,
-    toggleAssigneeDropdown, assignToDesigner, toggleApproverDropdown, setApprover, changeHierarchy, showToast,
+    toggleAssigneeDropdown, assignToDesigner, toggleApproverDropdown, setApprover, changeHierarchy, changeRole, filterTeamDirectory, showToast,
     openNewCampaignModal,
     filterAssets, clearAssetFilters, triggerAssetUpload, handleAssetFile, setAssetView, viewRequestFiles, downloadAsset,
     openCommandPalette, closeCommandPalette, openSearchResult,
