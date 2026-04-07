@@ -41,6 +41,19 @@
         <h1 style="font-family:Outfit,sans-serif;font-size:24px;font-weight:700;margin:16px 0 4px;letter-spacing:-0.02em;color:#ffffff">CreativeOps</h1>
         <p style="font-size:14px;color:#888;margin:0">Sign in to your Hoichoi account</p>
       </div>
+      <a href="/api/auth/microsoft" style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:10px;background:#191919;border:1px solid #333;border-radius:10px;color:#fff;font-size:14px;font-weight:600;font-family:Outfit,sans-serif;cursor:pointer;text-decoration:none;transition:border-color 0.2s;margin-bottom:20px;box-sizing:border-box" onmouseover="this.style.borderColor='#0078d4'" onmouseout="this.style.borderColor='#333'">
+        <svg width="18" height="18" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+        Sign in with Microsoft
+      </a>
+
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+        <div style="flex:1;height:1px;background:#333"></div>
+        <span style="font-size:12px;color:#555;font-family:Outfit,sans-serif">OR</span>
+        <div style="flex:1;height:1px;background:#333"></div>
+      </div>
+
+      <div id="ssoError" style="color:#f87171;font-size:13px;margin-bottom:12px;display:none;background:#f8717110;padding:8px 12px;border-radius:8px;border:1px solid #f8717130"></div>
+
       <div id="loginFormWrap">
         <form id="loginForm" onsubmit="event.preventDefault();handleLogin()" style="text-align:left">
           <label style="display:block;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;font-family:Outfit,sans-serif">Email address</label>
@@ -142,6 +155,16 @@ function toggleAuthMode() {
     registerWrap.style.display = '';
   }
 }
+
+(function checkSSOError() {
+  var params = new URLSearchParams(window.location.search);
+  var ssoErr = params.get('sso_error');
+  if (ssoErr) {
+    var el = document.getElementById('ssoError');
+    if (el) { el.textContent = ssoErr; el.style.display = 'block'; }
+    window.history.replaceState({}, '', '/');
+  }
+})();
 
 async function handleRegister() {
   var name = document.getElementById('registerName').value.trim();

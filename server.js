@@ -192,6 +192,150 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+// ── Microsoft SSO (OAuth 2.0 Authorization Code Flow) ──
+
+function getMicrosoftRedirectUri() {
+  const base = process.env.APP_URL
+    || (process.env.REPLIT_DEPLOYMENT ? `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}` : null)
+    || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null)
+    || 'http://localhost:3000';
+  return `${base}/api/auth/microsoft/callback`;
+}
+
+app.get('/api/auth/microsoft', (req, res) => {
+  const tenantId = process.env.AZURE_TENANT_ID;
+  const clientId = process.env.AZURE_CLIENT_ID;
+  if (!tenantId || !clientId) {
+    return res.status(500).send('Microsoft SSO not configured');
+  }
+
+  const state = crypto.randomBytes(16).toString('hex');
+  req.session.oauthState = state;
+
+  const redirectUri = getMicrosoftRedirectUri();
+  const params = new URLSearchParams({
+    client_id: clientId,
+    response_type: 'code',
+    redirect_uri: redirectUri,
+    response_mode: 'query',
+    scope: 'openid profile email User.Read',
+    state: state,
+  });
+
+  res.redirect(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params}`);
+});
+
+app.get('/api/auth/microsoft/callback', async (req, res) => {
+  const { code, state, error, error_description } = req.query;
+
+  if (error) {
+    console.error('[SSO] Microsoft auth error:', error, error_description);
+    return res.redirect('/?sso_error=' + encodeURIComponent('Microsoft sign-in was cancelled or failed. Please try again.'));
+  }
+
+  const savedState = req.session.oauthState;
+  delete req.session.oauthState;
+
+  if (!code || !state || !savedState || state !== savedState) {
+    return res.redirect('/?sso_error=' + encodeURIComponent('Invalid authentication state. Please try again.'));
+  }
+
+  const tenantId = process.env.AZURE_TENANT_ID;
+  const clientId = process.env.AZURE_CLIENT_ID;
+  const clientSecret = process.env.AZURE_CLIENT_SECRET;
+  const redirectUri = getMicrosoftRedirectUri();
+
+  try {
+    const https = require('https');
+
+    const tokenBody = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code: code,
+      redirect_uri: redirectUri,
+      grant_type: 'authorization_code',
+      scope: 'openid profile email User.Read',
+    }).toString();
+
+    const tokenData = await new Promise((resolve, reject) => {
+      const tokenReq = https.request({
+        hostname: 'login.microsoftonline.com',
+        path: `/${tenantId}/oauth2/v2.0/token`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Length': Buffer.byteLength(tokenBody),
+        },
+      }, (tokenRes) => {
+        let data = '';
+        tokenRes.on('data', chunk => data += chunk);
+        tokenRes.on('end', () => {
+          try { resolve(JSON.parse(data)); } catch (e) { reject(new Error('Token parse error')); }
+        });
+      });
+      tokenReq.on('error', reject);
+      tokenReq.write(tokenBody);
+      tokenReq.end();
+    });
+
+    if (!tokenData.access_token) {
+      console.error('[SSO] Token exchange failed:', tokenData);
+      return res.redirect('/?sso_error=' + encodeURIComponent('Authentication failed. Please try again.'));
+    }
+
+    const profile = await new Promise((resolve, reject) => {
+      const profileReq = https.request({
+        hostname: 'graph.microsoft.com',
+        path: '/v1.0/me',
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${tokenData.access_token}` },
+      }, (profileRes) => {
+        let data = '';
+        profileRes.on('data', chunk => data += chunk);
+        profileRes.on('end', () => {
+          try { resolve(JSON.parse(data)); } catch (e) { reject(new Error('Profile parse error')); }
+        });
+      });
+      profileReq.on('error', reject);
+      profileReq.end();
+    });
+
+    const msEmail = (profile.mail || profile.userPrincipalName || '').toLowerCase();
+    const msName = profile.displayName || profile.givenName || msEmail.split('@')[0];
+
+    if (!msEmail) {
+      return res.redirect('/?sso_error=' + encodeURIComponent('Could not retrieve email from Microsoft account.'));
+    }
+
+    const domain = msEmail.split('@')[1];
+    if (!ALLOWED_DOMAINS.includes(domain)) {
+      return res.redirect('/?sso_error=' + encodeURIComponent('Only @hoichoi.tv and @svf.in accounts are allowed.'));
+    }
+
+    let userRow = await pool.query('SELECT * FROM users WHERE LOWER(email) = $1', [msEmail]);
+
+    if (userRow.rows[0]) {
+      if (!userRow.rows[0].is_active) {
+        await pool.query('UPDATE users SET is_active = true WHERE id = $1', [userRow.rows[0].id]);
+      }
+      req.session.userId = userRow.rows[0].id;
+    } else {
+      const id = uuid();
+      await pool.query(
+        `INSERT INTO users (id, name, email, role, is_active, skills, capacity)
+         VALUES ($1, $2, $3, 'requester', true, '{}', 0)`,
+        [id, msName, msEmail]
+      );
+      req.session.userId = id;
+    }
+
+    res.redirect('/');
+  } catch (err) {
+    console.error('[SSO] Callback error:', err);
+    res.redirect('/?sso_error=' + encodeURIComponent('Authentication failed. Please try again.'));
+  }
+});
+
 app.post('/api/auth/logout', (req, res) => {
   req.session.destroy(() => {
     res.json({ success: true });

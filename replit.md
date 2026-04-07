@@ -49,7 +49,8 @@ public/
 - **Theme**: Dark by default (data-theme="dark"), light mode and prefers-color-scheme supported
 
 ### Authentication & Permissions
-- **Login**: Email + password, domain-restricted (@hoichoi.tv / @svf.in). Passwords hashed with bcryptjs.
+- **Login**: Email + password, domain-restricted (@hoichoi.tv / @svf.in). Passwords hashed with bcryptjs. Also supports Microsoft SSO via Azure AD OAuth 2.0 (authorization code flow).
+- **Microsoft SSO**: `/api/auth/microsoft` initiates OAuth flow → Microsoft login → `/api/auth/microsoft/callback` exchanges code for token, fetches profile from Graph API, creates/finds user, sets session. Requires AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET secrets. Domain-restricted to @hoichoi.tv and @svf.in. Redirect URI is dynamically computed from request host. Both dev and production domains are supported automatically.
 - **Registration**: Self-service sign-up at `/api/auth/register` for @hoichoi.tv and @svf.in emails. If email exists from CSV import (no password set), sets password on existing record preserving role/designation. New users get `requester` role. Password min 6 chars.
 - **Session**: express-session with memory store, cookie-based. `requireAuth` middleware on all `/api/*` except `/api/auth/*`.
 - **Roles**: `creative_lead`, `designer`, `approver`, `requester`
