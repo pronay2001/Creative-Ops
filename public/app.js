@@ -23,7 +23,6 @@ const App = (() => {
   let supabaseConfig = { url: '', key: '', status: 'none' };
   let assetUploads = {}; // { requestId: { type: 'image'|'video', dataUrl: '...' } }
   let campaignDetailTab = 'requests';
-  let creativeTeamFilters = {};
   // supabaseConfig is no longer used — data is in browser storage
 
   /* ── AVATAR COLORS ─────────────────────────────────────────────────── */
@@ -112,7 +111,7 @@ const App = (() => {
   const viewTitles = {
     dashboard: 'Dashboard', requests: 'Requests', campaigns: 'Campaigns',
     calendar: 'Calendar', kanban: 'Kanban Board', workload: 'Workload',
-    assets: 'Assets', timesheet: 'Timesheet', settings: 'Settings', creative_team: 'Creative Team',
+    assets: 'Assets', timesheet: 'Timesheet', settings: 'Settings',
   };
 
   function updateTopbarTitle(view) {
@@ -141,7 +140,6 @@ const App = (() => {
       case 'calendar':   container.innerHTML = renderCalendar(); initCalendarDnD(); break;
       case 'kanban':     container.innerHTML = renderKanban(); initKanbanDnD(); break;
       case 'workload':   container.innerHTML = renderWorkload(); initWorkloadChart(); initWorkloadDnD(); animateCountUp(); break;
-      case 'creative_team': container.innerHTML = renderCreativeTeam(); break;
       case 'assets':     container.innerHTML = renderAssets(); break;
       case 'timesheet':  container.innerHTML = renderTimesheet(); break;
       case 'settings':   container.innerHTML = renderSettings(); break;
@@ -420,143 +418,6 @@ const App = (() => {
   }
 
   /* ── 3. REQUEST DETAIL PANEL ───────────────────────────────────────── */
-  /* -- CREATIVE TEAM PAGE -- */
-  function renderCreativeTeam() {
-    const workload = DataService.getWorkload();
-    const allReqs = DataService.getRequests();
-    const campaigns = DataService.getCampaigns();
-    let allDeliverables = [];
-    allReqs.forEach(r => {
-      (r.deliverables || []).forEach(d => {
-        if (['final_approved','scheduled','live'].includes(d.status)) return;
-        allDeliverables.push({ ...d, requestId: r.id, requestTitle: r.title, campaignId: r.campaignId, campaign: r.campaign, priority: r.priority, goLiveDate: r.goLiveDate, internalDeadline: r.internalDeadline, isOverdue: r.isOverdue, isAtRisk: r.isAtRisk });
-      });
-    });
-    if (creativeTeamFilters.campaignId) allDeliverables = allDeliverables.filter(d => d.campaignId === creativeTeamFilters.campaignId);
-    if (creativeTeamFilters.priority) allDeliverables = allDeliverables.filter(d => d.priority === creativeTeamFilters.priority);
-    if (creativeTeamFilters.assetCategory) {
-      allDeliverables = allDeliverables.filter(d => {
-        const at = ASSET_TYPES.find(a => a.id === d.assetTypeId);
-        return at && at.category === creativeTeamFilters.assetCategory;
-      });
-    }
-    const unassigned = allDeliverables.filter(d => !d.assignedTo);
-    const assigned = allDeliverables.filter(d => d.assignedTo);
-    const assignedByDesigner = {};
-    assigned.forEach(d => { if (!assignedByDesigner[d.assignedTo]) assignedByDesigner[d.assignedTo] = []; assignedByDesigner[d.assignedTo].push(d); });
-    const designers = DataService.getDesigners();
-
-    return `<div class="view-container">
-      <div class="view-header"><h1>Creative Team</h1></div>
-      <div class="ct-filters">
-        <select class="form-input form-input-sm" onchange="App.filterCreativeTeam('campaignId', this.value)">
-          <option value="">All Campaigns</option>
-          ${campaigns.filter(c => c.status === 'active').map(c => `<option value="${c.id}" ${creativeTeamFilters.campaignId === c.id ? 'selected' : ''}>${c.name}</option>`).join('')}
-        </select>
-        <select class="form-input form-input-sm" onchange="App.filterCreativeTeam('assetCategory', this.value)">
-          <option value="">All Types</option>
-          <option value="static" ${creativeTeamFilters.assetCategory === 'static' ? 'selected' : ''}>Static</option>
-          <option value="video" ${creativeTeamFilters.assetCategory === 'video' ? 'selected' : ''}>Video</option>
-          <option value="motion" ${creativeTeamFilters.assetCategory === 'motion' ? 'selected' : ''}>Motion Graphics</option>
-        </select>
-        <select class="form-input form-input-sm" onchange="App.filterCreativeTeam('priority', this.value)">
-          <option value="">All Priorities</option>
-          <option value="urgent" ${creativeTeamFilters.priority === 'urgent' ? 'selected' : ''}>Urgent</option>
-          <option value="high" ${creativeTeamFilters.priority === 'high' ? 'selected' : ''}>High</option>
-          <option value="medium" ${creativeTeamFilters.priority === 'medium' ? 'selected' : ''}>Medium</option>
-          <option value="low" ${creativeTeamFilters.priority === 'low' ? 'selected' : ''}>Low</option>
-        </select>
-      </div>
-      <div class="ct-section">
-        <div class="ct-section-title"><i data-lucide="users" style="width:16px;height:16px"></i> Team Overview</div>
-        <div class="ct-team-grid">
-          ${workload.map(w => {
-            const capPct = w.capacity > 0 ? Math.min(100, Math.round((w.activeCount / w.capacity) * 100)) : 0;
-            const capColor = capPct > 90 ? 'var(--color-error)' : capPct >= 70 ? 'var(--color-warning)' : 'var(--color-success)';
-            return `<div class="ct-member-card"><div class="ct-member-info">${renderAvatar(w, 'sm')}<div><div class="ct-member-name">${w.name}</div><div class="ct-member-role">${w.role.replace(/_/g, ' ')}</div></div></div><div class="ct-member-stats"><span class="ct-member-count">${w.deliverableCount} deliverables</span><div class="ct-capacity-bar"><div class="ct-capacity-fill" style="width:${capPct}%;background:${capColor}"></div></div><span class="ct-capacity-label">${w.activeCount}/${w.capacity}</span></div></div>`;
-          }).join('')}
-        </div>
-      </div>
-      <div class="ct-section">
-        <div class="ct-section-title"><i data-lucide="inbox" style="width:16px;height:16px"></i> Unassigned Work <span class="badge badge-orange">${unassigned.length}</span></div>
-        ${unassigned.length === 0 ? '<div class="text-xs text-faint" style="padding:var(--space-4)">All deliverables are assigned.</div>' : `
-        <div class="ct-unassigned-list">
-          ${unassigned.map(d => {
-            const assetType = ASSET_TYPES.find(a => a.id === d.assetTypeId);
-            const dPlatforms = (d.platforms || []).map(pid => PLATFORMS.find(p => p.id === pid)).filter(Boolean);
-            return `<div class="ct-unassigned-item ${d.isOverdue ? 'ct-overdue' : d.isAtRisk ? 'ct-at-risk' : ''}">
-              <div class="ct-unassigned-main">
-                <div class="ct-unassigned-title">${priorityDot(d.priority)} <span onclick="App.openRequestDetail('${d.requestId}')" style="cursor:pointer">${d.requestTitle}</span></div>
-                <div class="ct-unassigned-meta">
-                  <span class="text-xs"><i data-lucide="${assetType ? assetType.icon : 'file'}" style="width:12px;height:12px"></i> ${assetType ? assetType.name : d.assetTypeId}</span>
-                  <span class="ct-unassigned-platforms">${dPlatforms.map(p => '<span class="platform-icon-chip" title="' + p.name + '"><i data-lucide="' + p.icon + '" style="width:11px;height:11px"></i></span>').join('')}</span>
-                  <span class="text-xs font-mono">${formatDate(d.goLiveDate)}</span>
-                  ${d.isOverdue ? '<span class="badge badge-red">Overdue</span>' : d.isAtRisk ? '<span class="badge badge-orange">At Risk</span>' : ''}
-                </div>
-              </div>
-              ${window.Permissions && window.Permissions.isLead() ? `<div class="ct-unassigned-assign"><select class="form-input form-input-sm ct-assign-select" onchange="App.assignCreativeTeamDeliverable('${d.requestId}', '${d.id}', this.value)"><option value="">Assign to...</option>${DataService.getUsers().map(u => '<option value="' + u.id + '">' + u.name + '</option>').join('')}</select></div>` : ''}
-            </div>`;
-          }).join('')}
-        </div>`}
-      </div>
-      <div class="ct-section">
-        <div class="ct-section-title"><i data-lucide="clipboard-list" style="width:16px;height:16px"></i> Assigned Work</div>
-        ${Object.keys(assignedByDesigner).length === 0 ? '<div class="text-xs text-faint" style="padding:var(--space-4)">No active assigned deliverables.</div>' : `
-        <div class="ct-assigned-groups">
-          ${workload.filter(w => assignedByDesigner[w.id] && assignedByDesigner[w.id].length > 0).map(w => `
-            <div class="ct-assigned-group">
-              <div class="ct-assigned-group-header">${renderAvatar(w, 'sm')} <span class="ct-assigned-group-name">${w.name}</span> <span class="badge badge-gray">${assignedByDesigner[w.id].length}</span></div>
-              <div class="ct-assigned-items">
-                ${assignedByDesigner[w.id].map(d => {
-                  const assetType = ASSET_TYPES.find(a => a.id === d.assetTypeId);
-                  return `<div class="ct-assigned-item">
-                    <div class="ct-assigned-item-main" onclick="App.openRequestDetail('${d.requestId}')">
-                      <div class="ct-assigned-item-title">${priorityDot(d.priority)} <span>${d.requestTitle}</span></div>
-                      <div class="ct-assigned-item-meta"><span class="text-xs"><i data-lucide="${assetType ? assetType.icon : 'file'}" style="width:11px;height:11px"></i> ${assetType ? assetType.name : ''}</span> <span class="text-xs font-mono">${formatDate(d.goLiveDate)}</span></div>
-                    </div>
-                    <div class="ct-assigned-item-actions">${statusBadge(d.status)} ${window.Permissions && (window.Permissions.isLead() || d.assignedTo === (window.__currentUser && window.__currentUser.id)) ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.advanceCreativeTeamDeliverable('${d.requestId}','${d.id}')" title="Advance status"><i data-lucide="arrow-right" style="width:12px;height:12px"></i></button>` : ''}</div>
-                  </div>`;
-                }).join('')}
-              </div>
-            </div>
-          `).join('')}
-        </div>`}
-      </div>
-    </div>`;
-  }
-
-  function filterCreativeTeam(key, value) {
-    if (value) creativeTeamFilters[key] = value; else delete creativeTeamFilters[key];
-    const container = document.getElementById('viewContainer');
-    container.innerHTML = renderCreativeTeam();
-    lucide.createIcons();
-  }
-
-  function assignCreativeTeamDeliverable(requestId, deliverableId, userId) {
-    if (!userId) return;
-    DataService.assignDeliverable(requestId, deliverableId, userId);
-    showToast('Deliverable assigned.', 'success');
-    const container = document.getElementById('viewContainer');
-    container.innerHTML = renderCreativeTeam();
-    lucide.createIcons();
-  }
-
-  function advanceCreativeTeamDeliverable(requestId, deliverableId) {
-    const req = DataService.getRequestById(requestId);
-    if (!req) return;
-    const del = req.deliverables.find(d => d.id === deliverableId);
-    if (!del) return;
-    const stages = del.assetType ? del.assetType.stages : ['intake','brief_approved','in_progress','first_cut','under_review','changes_in_progress','final_approved','scheduled','live'];
-    const idx = stages.indexOf(del.status);
-    if (idx >= 0 && idx < stages.length - 1) {
-      DataService.updateDeliverableStatus(requestId, deliverableId, stages[idx + 1]);
-      showToast('Status advanced.', 'success');
-      const container = document.getElementById('viewContainer');
-      container.innerHTML = renderCreativeTeam();
-      lucide.createIcons();
-    }
-  }
-
   function openRequestDetail(id) {
     const r = DataService.getRequestById(id);
     if (!r) return;
@@ -1996,7 +1857,7 @@ const App = (() => {
               ${renderAvatar(w, 'sm')}
               <div>
                 <div class="workload-designer-name">${w.name}</div>
-                <div class="workload-designer-role">${w.role.replace(/_/g,' ')}</div>
+                <div class="workload-designer-role">${w.designation || w.role.replace(/_/g,' ')}</div>
               </div>
             </div>
             <span class="badge ${w.capacityStatus === 'over' ? 'badge-red' : w.capacityStatus === 'at' ? 'badge-orange' : 'badge-green'}">
@@ -2139,7 +2000,7 @@ const App = (() => {
           ${renderAvatar(user, 'lg')}
           <div>
             <div style="font-weight:600">${user.name}</div>
-            <div class="text-xs text-muted">${user.role.replace(/_/g,' ')} · ${user.email}</div>
+            <div class="text-xs text-muted">${user.designation || user.role.replace(/_/g,' ')} · ${user.email}</div>
             <div class="text-xs text-muted mt-2">Skills: ${user.skills.join(', ')}</div>
           </div>
         </div>
@@ -2728,14 +2589,12 @@ const App = (() => {
         <h2>Team Directory</h2>
         <div class="data-table-container">
           <table class="data-table settings-table">
-            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Designation</th><th>Department</th><th>Reports To</th><th>Joined</th><th>Status</th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Designation</th><th>Reports To</th><th>Joined</th><th>Status</th></tr></thead>
             <tbody>
               ${users.map(u => `<tr>
                 <td><div class="flex gap-2 items-center">${renderAvatar(u,'sm')} ${u.name}</div></td>
                 <td class="text-xs text-muted">${u.email}</td>
-                <td><span class="badge badge-gray">${(u.role||'').replace(/_/g,' ')}</span></td>
-                <td class="text-xs text-muted">${u.designation || '—'}</td>
-                <td class="text-xs text-muted">${u.department || '—'}</td>
+                <td class="text-xs">${u.designation || '—'}</td>
                 <td class="text-xs text-muted">${u.reportsToName || '—'}</td>
                 <td class="text-xs font-mono text-muted">${u.joinedAt ? new Date(u.joinedAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : '—'}</td>
                 <td>${u.isActive !== false ? '<span class="badge badge-green" style="font-size:10px">Active</span>' : '<span class="badge badge-gray" style="font-size:10px">Inactive</span>'}</td>
@@ -3599,7 +3458,6 @@ const App = (() => {
     inlineSetPriority, duplicateRequest, deleteRequest, sortTable, applyTemplate,
     switchCampaignTab, submitKnowledgeEntry, deleteKnowledgeEntry,
     submitContentItem, advanceContentStatus, deleteContentItem,
-    filterCreativeTeam, assignCreativeTeamDeliverable, advanceCreativeTeamDeliverable,
     updateAutoPriority,
   };
 })();

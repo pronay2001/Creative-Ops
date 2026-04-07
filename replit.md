@@ -1,7 +1,7 @@
 # CreativeOps - Hoichoi Creative Operations Management
 
 ## Overview
-Internal creative operations management tool for Hoichoi (hoichoi.tv). Tracks creative requests, campaigns, team workload, and asset delivery pipelines.
+Internal creative operations management tool for Hoichoi (hoichoi.tv). Tracks creative requests, campaigns, workload, and asset delivery pipelines.
 
 ## Architecture
 Full-stack application: Express.js backend + PostgreSQL database + vanilla JS frontend.

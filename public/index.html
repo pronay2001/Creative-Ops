@@ -244,7 +244,7 @@ function applyCurrentUserToUI() {
   var sidebarUserName = document.getElementById('sidebarUserName');
   var sidebarUserRole = document.getElementById('sidebarUserRole');
   if (sidebarUserName) sidebarUserName.textContent = u.name;
-  if (sidebarUserRole) sidebarUserRole.textContent = u.role.replace(/_/g, ' ');
+  if (sidebarUserRole) sidebarUserRole.textContent = u.designation || u.role.replace(/_/g, ' ');
   var sidebarAvatar = document.querySelector('#sidebarUserInfo .topbar-avatar');
   if (sidebarAvatar) sidebarAvatar.textContent = initials;
 }
@@ -299,10 +299,6 @@ function showApp() {
       <button class="sidebar-nav-item" data-route="workload" data-tooltip="Workload" onclick="App.navigate('workload')">
         <i data-lucide="users"></i>
         <span class="sidebar-nav-label">Workload</span>
-      </button>
-      <button class="sidebar-nav-item" data-route="creative_team" data-tooltip="Creative Team" onclick="App.navigate('creative_team')">
-        <i data-lucide="palette"></i>
-        <span class="sidebar-nav-label">Creative Team</span>
       </button>
       <button class="sidebar-nav-item" data-route="assets" data-tooltip="Assets" onclick="App.navigate('assets')">
         <i data-lucide="folder"></i>

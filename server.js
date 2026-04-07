@@ -92,6 +92,7 @@ app.get('/api/me', async (req, res) => {
       name: u.name,
       email: u.email,
       role: u.role,
+      designation: u.designation || null,
       skills: u.skills || [],
       capacity: u.capacity || 0,
     });
@@ -131,6 +132,7 @@ app.post('/api/auth/login', async (req, res) => {
       name: u.name,
       email: u.email,
       role: u.role,
+      designation: u.designation || null,
       skills: u.skills || [],
       capacity: u.capacity || 0,
     });
@@ -183,6 +185,7 @@ app.post('/api/auth/register', async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      designation: user.designation || null,
       skills: user.skills || [],
       capacity: user.capacity || 0,
     });
