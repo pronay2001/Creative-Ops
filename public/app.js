@@ -889,22 +889,19 @@ const App = (() => {
     const platforms = DataService.getPlatforms();
     const container = document.getElementById('deliverablesContainer');
     if (!container) return;
-    container.innerHTML = modalDeliverables.map((del, idx) => `
+    container.innerHTML = modalDeliverables.map((del, idx) => {
+      const selectedType = assetTypes.find(a => a.id === del.assetTypeId);
+      const displayName = selectedType ? selectedType.name : '';
+      return `
       <div class="deliverable-row" data-del-idx="${idx}">
         <div class="deliverable-row-header">
           <span class="deliverable-row-num">${idx + 1}</span>
-          <select class="form-select form-select-sm deliverable-asset-select" onchange="App.updateModalDeliverable(${idx},'assetTypeId',this.value)">
-            <option value="">Asset Type *</option>
-            <optgroup label="Video">
-              ${assetTypes.filter(a => a.category === 'video').map(a => `<option value="${a.id}" ${del.assetTypeId===a.id?'selected':''}>${a.name}</option>`).join('')}
-            </optgroup>
-            <optgroup label="Static">
-              ${assetTypes.filter(a => a.category === 'static').map(a => `<option value="${a.id}" ${del.assetTypeId===a.id?'selected':''}>${a.name}</option>`).join('')}
-            </optgroup>
-            <optgroup label="Motion Graphics">
-              ${assetTypes.filter(a => a.category === 'motion').map(a => `<option value="${a.id}" ${del.assetTypeId===a.id?'selected':''}>${a.name}</option>`).join('')}
-            </optgroup>
-          </select>
+          <div class="del-asset-search-wrap" style="position:relative;flex:1">
+            <input class="form-input form-input-sm del-asset-search" data-del-idx="${idx}" placeholder="Search asset type…" value="${displayName}" autocomplete="off"
+              onfocus="App._openDelAssetDropdown(${idx})"
+              oninput="App._filterDelAssetDropdown(${idx})">
+            <div class="del-asset-dropdown" id="delAssetDrop_${idx}" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:120;background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md);max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div>
+          </div>
           ${modalDeliverables.length > 1 ? `<button class="btn btn-ghost btn-sm deliverable-remove-btn" onclick="App.removeModalDeliverable(${idx})" title="Remove"><i data-lucide="x" style="width:14px;height:14px"></i></button>` : ''}
         </div>
         <div class="deliverable-platforms">
@@ -916,11 +913,75 @@ const App = (() => {
             </label>`;
           }).join('')}
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
     const countEl = document.getElementById('delCount');
     if (countEl) countEl.textContent = modalDeliverables.length + ' item' + (modalDeliverables.length !== 1 ? 's' : '');
     lucide.createIcons();
+  }
+
+  function _closeAllDelAssetDropdowns() {
+    document.querySelectorAll('.del-asset-dropdown').forEach(d => d.style.display = 'none');
+  }
+
+  function _openDelAssetDropdown(idx) {
+    _closeAllDelAssetDropdowns();
+    _filterDelAssetDropdown(idx);
+    const drop = document.getElementById('delAssetDrop_' + idx);
+    if (drop) drop.style.display = '';
+    const input = document.querySelector(`.del-asset-search[data-del-idx="${idx}"]`);
+    if (input) {
+      input.addEventListener('blur', () => {
+        setTimeout(() => {
+          const d = document.getElementById('delAssetDrop_' + idx);
+          if (d) d.style.display = 'none';
+          if (input.value && !modalDeliverables[idx]?.assetTypeId) {
+            input.value = '';
+          } else if (modalDeliverables[idx]?.assetTypeId) {
+            const at = DataService.getAssetTypes().find(a => a.id === modalDeliverables[idx].assetTypeId);
+            if (at) input.value = at.name;
+          }
+        }, 200);
+      }, { once: true });
+    }
+  }
+
+  function _filterDelAssetDropdown(idx) {
+    const assetTypes = DataService.getAssetTypes();
+    const input = document.querySelector(`.del-asset-search[data-del-idx="${idx}"]`);
+    const drop = document.getElementById('delAssetDrop_' + idx);
+    if (!input || !drop) return;
+    const q = input.value.toLowerCase();
+
+    const categories = [
+      { label: 'Video', items: assetTypes.filter(a => a.category === 'video') },
+      { label: 'Static', items: assetTypes.filter(a => a.category === 'static') },
+      { label: 'Motion Graphics', items: assetTypes.filter(a => a.category === 'motion') },
+      { label: 'Other', items: assetTypes.filter(a => !a.category || !['video','static','motion'].includes(a.category)) },
+    ];
+
+    let html = '';
+    for (const cat of categories) {
+      const filtered = q ? cat.items.filter(a => a.name.toLowerCase().includes(q)) : cat.items;
+      if (filtered.length === 0) continue;
+      html += `<div style="padding:4px 10px;font-size:11px;color:var(--color-text-faint);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">${cat.label}</div>`;
+      html += filtered.map(a => `<div class="del-asset-option" style="padding:6px 12px;cursor:pointer;font-size:13px;color:var(--color-text-primary)" onmousedown="App._pickDelAsset(${idx},'${a.id}')">${a.name}</div>`).join('');
+    }
+    if (!html) html = '<div style="padding:10px;color:var(--color-text-faint);font-size:12px;text-align:center">No matches</div>';
+    drop.innerHTML = html;
+    drop.style.display = '';
+  }
+
+  function _pickDelAsset(idx, assetTypeId) {
+    if (modalDeliverables[idx]) modalDeliverables[idx].assetTypeId = assetTypeId;
+    const drop = document.getElementById('delAssetDrop_' + idx);
+    if (drop) drop.style.display = 'none';
+    const assetTypes = DataService.getAssetTypes();
+    const at = assetTypes.find(a => a.id === assetTypeId);
+    const input = document.querySelector(`.del-asset-search[data-del-idx="${idx}"]`);
+    if (input && at) input.value = at.name;
+    const goLive = document.getElementById('reqGoLive')?.value;
+    if (goLive) checkSlaWarning(assetTypeId, goLive);
   }
 
   function updateModalDeliverable(idx, field, value) {
@@ -3791,6 +3852,7 @@ const App = (() => {
     filterAssets, clearAssetFilters, triggerAssetUpload, handleAssetFile, setAssetView, viewRequestFiles, downloadAsset,
     openCommandPalette, closeCommandPalette, openSearchResult,
     saveSupabaseConfig, testSupabaseConnection, exportData, importData, handleImportFile, resetData, handleCSVSelect, importCSV, _pickAssignUser,
+    _openDelAssetDropdown, _filterDelAssetDropdown, _pickDelAsset,
     updateTimesheetHours, switchTimesheetTab, switchTimesheetUser,
     timesheetPrevWeek, timesheetNextWeek, timesheetThisWeek,
     tsStart, tsShiftJob, tsStartAgain, tsEnd, tsChangeAssignedPerson,
