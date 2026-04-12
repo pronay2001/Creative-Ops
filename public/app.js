@@ -3,6 +3,19 @@
    Main application: routing, views, interactions
    ========================================================================== */
 
+const FINAL_APPROVER_IDS = [
+  'u_82e8164e', // Salankara Biswas
+  'u_578f5230', // Gunturu Sai Avinash
+  'u_3042b8bd', // Sayantan Guha
+  'u_1e4fba78', // Pritam Ghosh
+  'u_8a1ee3ba', // Arnab Bhattacharjee
+  'u_2b44d807', // Arnab Neogi
+  'u_123e14aa', // Adhidev Mukherjee
+  'u_9118cfb2', // Sambbhav Khettrapal
+  'u_22563d55', // Sourav Ghosh
+  'u_93211098', // Mandar Banerjee
+];
+
 const App = (() => {
   let currentView = 'dashboard';
   let chartInstance = null;
@@ -804,10 +817,10 @@ const App = (() => {
     event.stopPropagation();
     closeDropdowns();
     const trigger = event.currentTarget;
-    const allUsers = DataService.getUsers().filter(u => u.hierarchyLevel === 'admin' || u.hierarchyLevel === 'manager');
+    const allUsers = DataService.getUsers().filter(u => FINAL_APPROVER_IDS.includes(u.id));
     const dropdown = _buildSearchableDropdown(allUsers, d =>
       `<button class="action-dropdown-item" onclick="App.setApprover('${reqId}','${d.id}')">
-        ${renderAvatar(d, 'sm')} ${d.name} <span class="text-xs text-faint" style="margin-left:auto">${d.hierarchyLevel}</span>
+        ${renderAvatar(d, 'sm')} ${d.name}
       </button>`
     );
     trigger.style.position = 'relative';
@@ -987,7 +1000,7 @@ const App = (() => {
 
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Assign to</label>
+          <label class="form-label">Assign To *</label>
           <div style="position:relative">
             <input class="form-input" id="reqAssignSearch" placeholder="Search by name…" autocomplete="off">
             <input type="hidden" id="reqAssignTo" value="">
@@ -995,12 +1008,11 @@ const App = (() => {
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label">Final Approver</label>
+          <label class="form-label">Final Approver *</label>
           <select class="form-select" id="reqApprover">
             <option value="">Select approver</option>
-            ${DataService.getUsers().filter(u => u.hierarchyLevel === 'admin' || u.hierarchyLevel === 'manager').map(u => '<option value="' + u.id + '">' + u.name + ' (' + u.hierarchyLevel + ')' + '</option>').join('')}
+            ${DataService.getUsers().filter(u => FINAL_APPROVER_IDS.includes(u.id)).map(u => '<option value="' + u.id + '">' + u.name + '</option>').join('')}
           </select>
-          <span class="text-xs text-faint" style="margin-top:2px;display:block">Only managers and admins can approve final drafts</span>
         </div>
       </div>
 
@@ -1154,10 +1166,31 @@ const App = (() => {
       if (priority === 'blocked') priority = 'urgent';
     }
 
+    const approverId = document.getElementById('reqApprover')?.value || null;
+
+    // Business hours check: Mon 9AM – Fri 7PM IST
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const ist = new Date(now.getTime() + (istOffset + now.getTimezoneOffset() * 60 * 1000));
+    const istDay = ist.getDay(); // 0=Sun, 6=Sat
+    const istTime = ist.getHours() + ist.getMinutes() / 60;
+    if (istDay === 0 || istDay === 6 || istTime < 9 || istTime >= 19) {
+      showToast('Requisitions can only be raised Monday 9 AM to Friday 7 PM (IST).', 'error');
+      return;
+    }
+
     // Validate deliverables
     const validDels = modalDeliverables.filter(d => d.assetTypeId && d.platforms.length > 0);
     if (!title || !goLiveDate || validDels.length === 0) {
       showToast('Please fill in title, go-live date, and at least one deliverable with asset type and platform.', 'error');
+      return;
+    }
+    if (!assignedTo) {
+      showToast('Please assign this request to a team member.', 'error');
+      return;
+    }
+    if (!approverId) {
+      showToast('Please select a final approver.', 'error');
       return;
     }
 
@@ -1171,7 +1204,6 @@ const App = (() => {
     }));
 
     const languages = [...document.getElementById('reqLanguages').selectedOptions].map(o => o.value);
-    const approverId = document.getElementById('reqApprover')?.value || null;
 
     DataService.createRequest({
       title, campaignId, goLiveDate, priority, vertical, department,

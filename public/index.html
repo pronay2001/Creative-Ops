@@ -232,7 +232,7 @@ function buildPermissions(u) {
       return u.role === 'creative_lead' || u.role === 'approver';
     },
     canDeleteRequest: function(r) { return r.createdBy === u.id || r.created_by === u.id || u.role === 'creative_lead' || hl === 'admin'; },
-    canCreateCampaign: function() { return ['requester','creative_lead','approver'].includes(u.role); },
+    canCreateCampaign: function() { return hl === 'admin'; },
     canEditCampaign: function(c) { return c.createdBy === u.id || c.created_by === u.id || u.role === 'creative_lead' || hl === 'admin'; },
     canEditTimesheet: function(userId) { return userId === u.id; },
     isLead: function() { return u.role === 'creative_lead' || hl === 'admin'; },

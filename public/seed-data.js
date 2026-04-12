@@ -140,6 +140,9 @@ const SEED_DATA = {
     { id: 'packaging_materials_motion',     name: 'Packaging Materials (Ads / Branded Content / SM / CM)', category: 'motion', slaDays: 5, icon: 'sparkles', stages: ['intake','brief_approved','in_progress','first_cut','under_review','changes_in_progress','final_approved','scheduled','live'] },
     { id: 'loglineai_scene_cg',             name: 'LoglineAI Scene CG',               category: 'motion', slaDays: 7, icon: 'sparkles', stages: ['intake','brief_approved','in_progress','first_cut','under_review','changes_in_progress','final_approved','scheduled','live'] },
     { id: 'song_lyrical_videos',            name: 'Song Lyrical Videos',              category: 'motion', slaDays: 7, icon: 'sparkles', stages: ['intake','brief_approved','in_progress','first_cut','under_review','changes_in_progress','final_approved','scheduled','live'] },
+
+    // ── OTHERS ────────────────────────────────────────────────────────────
+    { id: 'others',                          name: 'Others',                           category: 'other', slaDays: 5, icon: 'file-plus', stages: ['intake','brief_approved','in_progress','first_cut','under_review','changes_in_progress','final_approved','scheduled','live'] },
   ],
 
   users: [],

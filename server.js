@@ -523,8 +523,8 @@ app.get('/api/campaigns', async (req, res) => {
 app.post('/api/campaigns', async (req, res) => {
   try {
     const user = await getSessionUser(req);
-    if (!user || !CREATOR_ROLES.includes(user.role)) {
-      return res.status(403).json({ error: 'You don\'t have permission to create campaigns' });
+    if (!user || user.hierarchy_level !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can create campaigns' });
     }
     const { name, show, status, description } = req.body;
     const id = uuid();
@@ -634,11 +634,19 @@ app.post('/api/requests', async (req, res) => {
 
     const { title, campaignId, assetTypeId, department, platforms, assignedTo, priority, goLiveDate, internalDeadline, brief, deliverables, vertical, isExpedited, approverId } = req.body;
 
-    if (approverId) {
-      const approverRow = await pool.query('SELECT hierarchy_level FROM users WHERE id = $1', [approverId]);
-      if (!approverRow.rows[0] || !['admin', 'manager'].includes(approverRow.rows[0].hierarchy_level)) {
-        return res.status(400).json({ error: 'Selected approver must be a manager or admin' });
-      }
+    // Business hours enforcement: Mon 9AM – Fri 7PM IST
+    const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const dayOfWeek = ist.getDay();
+    const hourIST = ist.getHours() + ist.getMinutes() / 60;
+    if (dayOfWeek === 0 || dayOfWeek === 6 || hourIST < 9 || hourIST >= 19) {
+      return res.status(400).json({ error: 'Requisitions can only be raised Monday 9 AM to Friday 7 PM (IST)' });
+    }
+
+    if (!assignedTo) {
+      return res.status(400).json({ error: 'Assign To is a required field' });
+    }
+    if (!approverId) {
+      return res.status(400).json({ error: 'Final Approver is a required field' });
     }
 
     const id = uuid();
