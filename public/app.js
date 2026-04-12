@@ -9,17 +9,17 @@ const TEAM_NAMES = {
   motion_graphics: 'Motion Graphics Team'
 };
 
-const FINAL_APPROVER_IDS = [
-  'u_82e8164e', // Salankara Biswas
-  'u_578f5230', // Gunturu Sai Avinash
-  'u_3042b8bd', // Sayantan Guha
-  'u_1e4fba78', // Pritam Ghosh
-  'u_8a1ee3ba', // Arnab Bhattacharjee
-  'u_2b44d807', // Arnab Neogi
-  'u_123e14aa', // Adhidev Mukherjee
-  'u_9118cfb2', // Sambbhav Khettrapal
-  'u_22563d55', // Sourav Ghosh
-  'u_93211098', // Mandar Banerjee
+const FINAL_APPROVER_EMAILS = [
+  'salankara.biswas@hoichoi.tv',
+  'sai.avinash@hoichoi.tv',
+  'sayantan.guha@hoichoi.tv',
+  'pritam.ghosh@hoichoi.tv',
+  'arnab.bhattacharjee@hoichoi.tv',
+  'arnab.neogi@hoichoi.tv',
+  'adhidev.mukherjee@hoichoi.tv',
+  'sambhav.khetrapal@hoichoi.tv',
+  'sourav.ghosh@svf.in',
+  'mandar.banerjee@hoichoi.tv',
 ];
 
 const App = (() => {
@@ -824,7 +824,7 @@ const App = (() => {
     event.stopPropagation();
     closeDropdowns();
     const trigger = event.currentTarget;
-    const allUsers = DataService.getUsers().filter(u => FINAL_APPROVER_IDS.includes(u.id));
+    const allUsers = DataService.getUsers().filter(u => u.email && FINAL_APPROVER_EMAILS.includes(u.email.toLowerCase()));
     const dropdown = _buildSearchableDropdown(allUsers, d =>
       `<button class="action-dropdown-item" onclick="App.setApprover('${reqId}','${d.id}')">
         ${renderAvatar(d, 'sm')} ${d.name}
@@ -1020,7 +1020,7 @@ const App = (() => {
           <label class="form-label">Final Approver *</label>
           <select class="form-select" id="reqApprover">
             <option value="">Select approver</option>
-            ${DataService.getUsers().filter(u => FINAL_APPROVER_IDS.includes(u.id)).map(u => '<option value="' + u.id + '">' + u.name + '</option>').join('')}
+            ${DataService.getUsers().filter(u => u.email && FINAL_APPROVER_EMAILS.includes(u.email.toLowerCase())).map(u => '<option value="' + u.id + '">' + u.name + '</option>').join('')}
           </select>
         </div>
       </div>
