@@ -59,8 +59,9 @@ public/
 - **Business Hours**: Requisitions can only be created Monday 9 AM to Friday 7 PM IST. Enforced on both frontend and backend.
 - **Permission matrix**:
   - Create campaigns: admin only (hierarchy_level = 'admin')
-  - Create requests: requester, creative_lead, approver (with mandatory Assign To and Final Approver fields)
-  - Assign requests: creative_lead only
+  - Create requests: requester, creative_lead, approver (with mandatory team selection and Final Approver)
+  - **Team assignment flow**: Requester selects a team (Graphics/Video/Motion Graphics). Email goes to team lead (Sagnik Ghosh / Arnab Bhattacharjee / Mangaldeep Karmakar). Team lead reassigns to a specific employee → assignee gets email, requester gets email, task shows on assignee's calendar & kanban.
+  - Assign/reassign requests: current assignee (team lead), creative_lead, creator, or admin
   - Advance status/approve: creative_lead, approver, hierarchy admin/manager, designated approver (+ assigned designer for own work)
   - Import/reset data: creative_lead only
   - Change hierarchy/roles: hierarchy admin only

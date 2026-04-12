@@ -104,6 +104,7 @@ const SupabaseClient = (() => {
       brief: r.brief || {},
       isExpedited: r.is_expedited || false,
       approverId: r.approver_id || r.approverId || null,
+      assignedTeam: r.assigned_team || r.assignedTeam || null,
       deliverables: deliverables,
       department: r.department || '',
     };

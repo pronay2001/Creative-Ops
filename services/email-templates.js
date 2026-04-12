@@ -166,4 +166,25 @@ ${detailRow('Vertical', request.vertical)}
   `);
 }
 
-module.exports = { taskAssignment, statusChange, newComment, approvalDecision };
+function memberAssigned(request, assigneeName) {
+  return layout(`
+<h2 style="color:#e2e8f0;font-size:18px;margin:0 0 8px;">Team Member Assigned</h2>
+<p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">${esc(request.title)}</p>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#222222;border-radius:10px;margin-bottom:16px;">
+<tr><td style="padding:16px;">
+<p style="color:#e2e8f0;font-size:14px;margin:0 0 16px;"><strong style="color:#d20820;">${esc(assigneeName)}</strong> has been assigned to work on your request.</p>
+<table role="presentation" cellspacing="0" cellpadding="0" border="0">
+<tr><td style="padding:4px 0;"><span style="color:#6b7280;font-size:13px;">Priority:</span></td><td style="padding:4px 12px;">${priorityBadge(request.priority)}</td></tr>
+${detailRow('Asset Type', request.asset_type_id)}
+${detailRow('Campaign', request.campaign_name || (request.campaign && request.campaign.name))}
+${detailRow('Go-Live Date', formatDate(request.go_live_date))}
+${detailRow('Internal Deadline', formatDate(request.internal_deadline))}
+${detailRow('Assigned To', assigneeName)}
+${detailRow('Vertical', request.vertical)}
+</table>
+</td></tr>
+</table>
+  `);
+}
+
+module.exports = { taskAssignment, statusChange, newComment, approvalDecision, memberAssigned };

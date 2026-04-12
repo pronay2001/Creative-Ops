@@ -3,6 +3,12 @@
    Main application: routing, views, interactions
    ========================================================================== */
 
+const TEAM_NAMES = {
+  graphics: 'Graphics Team',
+  video: 'Video Team',
+  motion_graphics: 'Motion Graphics Team'
+};
+
 const FINAL_APPROVER_IDS = [
   'u_82e8164e', // Salankara Biswas
   'u_578f5230', // Gunturu Sai Avinash
@@ -515,6 +521,7 @@ const App = (() => {
           <div class="detail-field"><label>Status</label><p>${statusBadge(r.status)}</p></div>
           <div class="detail-field"><label>Go-Live Date</label><p class="font-mono">${formatDate(r.goLiveDate)}</p></div>
           <div class="detail-field"><label>Internal Deadline</label><p class="font-mono ${r.isOverdue ? 'style="color:var(--color-error)"' : ''}">${formatDate(r.internalDeadline)}</p></div>
+          <div class="detail-field"><label>Assigned Team</label><p>${r.assignedTeam ? (TEAM_NAMES[r.assignedTeam] || r.assignedTeam) : '<span class="text-faint">—</span>'}</p></div>
           <div class="detail-field"><label>Assigned To</label><p>
             ${window.Permissions && window.Permissions.canAssignRequest(r) ? `<span class="assignee-dropdown-trigger" onclick="App.toggleAssigneeDropdown(event, '${r.id}')">
               ${r.assignee ? `${renderAvatar(r.assignee,'sm')} ${r.assignee.name}` : '<span class="text-faint">Unassigned</span>'}
@@ -1000,12 +1007,14 @@ const App = (() => {
 
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Assign To *</label>
-          <div style="position:relative">
-            <input class="form-input" id="reqAssignSearch" placeholder="Search by name…" autocomplete="off">
-            <input type="hidden" id="reqAssignTo" value="">
-            <div id="reqAssignDropdown" class="assign-search-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:100;background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md);max-height:180px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div>
-          </div>
+          <label class="form-label">Assign To Team *</label>
+          <select class="form-select" id="reqAssignTeam">
+            <option value="">Select team</option>
+            <option value="graphics">Graphics Team</option>
+            <option value="video">Video Team</option>
+            <option value="motion_graphics">Motion Graphics Team</option>
+          </select>
+          <span class="text-xs text-faint" style="margin-top:var(--space-1);display:block">The respective team lead will be notified and can assign to a team member</span>
         </div>
         <div class="form-group">
           <label class="form-label">Final Approver *</label>
@@ -1072,7 +1081,6 @@ const App = (() => {
     document.getElementById('modalOverlay').classList.add('open');
     renderDeliverablesBuilder();
     lucide.createIcons();
-    _wireAssignSearch();
   }
 
   function _wireAssignSearch() {
@@ -1152,7 +1160,7 @@ const App = (() => {
     const goLiveDate = document.getElementById('reqGoLive')?.value;
     const vertical = document.getElementById('reqVertical')?.value || '';
     const department = document.getElementById('reqDepartment')?.value || '';
-    const assignedTo = document.getElementById('reqAssignTo')?.value || null;
+    const assignedTeam = document.getElementById('reqAssignTeam')?.value || '';
 
     // Compute auto priority
     let priority = 'medium';
@@ -1185,8 +1193,8 @@ const App = (() => {
       showToast('Please fill in title, go-live date, and at least one deliverable with asset type and platform.', 'error');
       return;
     }
-    if (!assignedTo) {
-      showToast('Please assign this request to a team member.', 'error');
+    if (!assignedTeam) {
+      showToast('Please select a team to assign this request to.', 'error');
       return;
     }
     if (!approverId) {
@@ -1207,7 +1215,7 @@ const App = (() => {
 
     DataService.createRequest({
       title, campaignId, goLiveDate, priority, vertical, department,
-      assignedTo, approverId,
+      assignedTeam, approverId,
       deliverables,
       brief: {
         objective: document.getElementById('reqObjective')?.value || '',

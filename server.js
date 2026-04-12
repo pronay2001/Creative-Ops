@@ -77,6 +77,19 @@ const LEAD_ROLES = ['creative_lead'];
 const APPROVER_ROLES = ['creative_lead', 'approver'];
 const HIERARCHY_LEVELS = ['admin', 'manager', 'team'];
 
+const TEAM_LEADS = {
+  graphics: { name: 'Graphics Team', email: 'sagnik.ghosh@hoichoi.tv' },
+  video: { name: 'Video Team', email: 'arnab.bhattacharjee@hoichoi.tv' },
+  motion_graphics: { name: 'Motion Graphics Team', email: 'mangaldeep.karmakar@hoichoi.tv' }
+};
+
+async function resolveTeamLead(teamKey) {
+  const team = TEAM_LEADS[teamKey];
+  if (!team) return null;
+  const result = await pool.query('SELECT * FROM users WHERE LOWER(email) = $1', [team.email]);
+  return result.rows[0] || null;
+}
+
 async function enrichRequestForEmail(req) {
   const r = { ...req };
   try {
@@ -632,7 +645,7 @@ app.post('/api/requests', async (req, res) => {
       return res.status(403).json({ error: 'You don\'t have permission to create requests' });
     }
 
-    const { title, campaignId, assetTypeId, department, platforms, assignedTo, priority, goLiveDate, internalDeadline, brief, deliverables, vertical, isExpedited, approverId } = req.body;
+    const { title, campaignId, assetTypeId, department, platforms, assignedTeam, priority, goLiveDate, internalDeadline, brief, deliverables, vertical, isExpedited, approverId } = req.body;
 
     // Business hours enforcement: Mon 9AM – Fri 7PM IST
     const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
@@ -642,18 +655,24 @@ app.post('/api/requests', async (req, res) => {
       return res.status(400).json({ error: 'Requisitions can only be raised Monday 9 AM to Friday 7 PM (IST)' });
     }
 
-    if (!assignedTo) {
-      return res.status(400).json({ error: 'Assign To is a required field' });
+    if (!assignedTeam || !TEAM_LEADS[assignedTeam]) {
+      return res.status(400).json({ error: 'Please select a team to assign this request to' });
     }
     if (!approverId) {
       return res.status(400).json({ error: 'Final Approver is a required field' });
     }
 
+    const teamLead = await resolveTeamLead(assignedTeam);
+    if (!teamLead) {
+      return res.status(400).json({ error: 'Team lead not found in the system. Please contact admin.' });
+    }
+    const assignedTo = teamLead.id;
+
     const id = uuid();
     const result = await pool.query(
-      `INSERT INTO requests (id, title, campaign_id, asset_type_id, department, platforms, assigned_to, status, priority, go_live_date, internal_deadline, brief, created_by, vertical, is_expedited, approver_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'intake', $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
-      [id, title, campaignId || null, assetTypeId, department || '', platforms || [], assignedTo || null, priority || 'medium', goLiveDate || null, internalDeadline || null, JSON.stringify(brief || {}), req.session.userId, vertical || '', isExpedited || false, approverId || null]
+      `INSERT INTO requests (id, title, campaign_id, asset_type_id, department, platforms, assigned_to, status, priority, go_live_date, internal_deadline, brief, created_by, vertical, is_expedited, approver_id, assigned_team)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'intake', $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
+      [id, title, campaignId || null, assetTypeId, department || '', platforms || [], assignedTo, priority || 'medium', goLiveDate || null, internalDeadline || null, JSON.stringify(brief || {}), req.session.userId, vertical || '', isExpedited || false, approverId || null, assignedTeam]
     );
 
     if (deliverables && deliverables.length) {
@@ -726,8 +745,8 @@ app.patch('/api/requests/:id', async (req, res) => {
       }
     }
     if (isAssignmentChange) {
-      if (!isCreator && !isLead && !isHierarchyAdmin) {
-        return res.status(403).json({ error: 'Only the request creator or an admin can assign requests' });
+      if (!isCreator && !isLead && !isHierarchyAdmin && !isAssignee) {
+        return res.status(403).json({ error: 'Only the team lead, request creator, or an admin can assign requests' });
       }
     }
     if (isApproverChange) {
@@ -745,7 +764,7 @@ app.patch('/api/requests/:id', async (req, res) => {
     if (!canEditGeneral) {
       const allowedFields = new Set();
       if (isStatusChange) allowedFields.add('status');
-      if (isAssignmentChange && (isCreator || isLead || isHierarchyAdmin)) allowedFields.add('assignedTo');
+      if (isAssignmentChange && (isCreator || isLead || isHierarchyAdmin || isAssignee)) allowedFields.add('assignedTo');
       if (isApproverChange && (isCreator || isLead || isHierarchyAdmin)) allowedFields.add('approverId');
       for (const key of Object.keys(fields)) {
         if (!allowedFields.has(key)) {
@@ -826,20 +845,36 @@ app.patch('/api/requests/:id', async (req, res) => {
     }
 
     if (isAssignmentChange) {
+      const assigneeRow = await pool.query('SELECT * FROM users WHERE id = $1', [fields.assignedTo]);
+      const reassignName = assigneeRow.rows[0] ? assigneeRow.rows[0].name : fields.assignedTo;
       await pool.query(
         `INSERT INTO activity_log (request_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
-        [id, req.session.userId, 'assigned', JSON.stringify({ detail: `Assigned to user ${fields.assignedTo}` })]
+        [id, req.session.userId, 'assigned', JSON.stringify({ detail: `Assigned to ${reassignName}` })]
       );
       if (emailService && emailTemplates) {
-        const assignee = await pool.query('SELECT * FROM users WHERE id = $1', [fields.assignedTo]);
-        if (assignee.rows[0]) {
+        try {
           const enrichedUpd2 = await enrichRequestForEmail(updated);
-          const html = emailTemplates.taskAssignment(enrichedUpd2, assignee.rows[0]);
-          fireEmail(
-            [{ address: assignee.rows[0].email, name: assignee.rows[0].name }],
-            `[CreativeOps] New task assigned: ${updated.title}`,
-            html
-          );
+          if (assigneeRow.rows[0]) {
+            const html = emailTemplates.taskAssignment(enrichedUpd2, assigneeRow.rows[0]);
+            fireEmail(
+              [{ address: assigneeRow.rows[0].email, name: assigneeRow.rows[0].name }],
+              `[CreativeOps] New task assigned: ${updated.title}`,
+              html
+            );
+          }
+          if (updated.created_by && updated.created_by !== fields.assignedTo) {
+            const creator = await pool.query('SELECT * FROM users WHERE id = $1', [updated.created_by]);
+            if (creator.rows[0]) {
+              const html2 = emailTemplates.memberAssigned(enrichedUpd2, reassignName);
+              fireEmail(
+                [{ address: creator.rows[0].email, name: creator.rows[0].name }],
+                `[CreativeOps] ${reassignName} has been assigned to: ${updated.title}`,
+                html2
+              );
+            }
+          }
+        } catch (emailErr) {
+          console.error('[email] Reassignment notification failed:', emailErr.message);
         }
       }
     }
@@ -883,8 +918,10 @@ app.post('/api/requests/:id/assign', async (req, res) => {
 
     const isCreator = request.rows[0].created_by === req.session.userId;
     const isLead = user && LEAD_ROLES.includes(user.role);
-    if (!isCreator && !isLead) {
-      return res.status(403).json({ error: 'Only the request creator or creative lead can assign requests' });
+    const isCurrentAssignee = request.rows[0].assigned_to === req.session.userId;
+    const isAdmin = user && user.hierarchy_level === 'admin';
+    if (!isCreator && !isLead && !isCurrentAssignee && !isAdmin) {
+      return res.status(403).json({ error: 'Only the team lead, request creator, or admin can reassign requests' });
     }
 
     const result = await pool.query(
@@ -893,24 +930,43 @@ app.post('/api/requests/:id/assign', async (req, res) => {
     );
     const updated = result.rows[0];
 
+    const assigneeUser = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+    const assigneeName = assigneeUser.rows[0] ? assigneeUser.rows[0].name : userId;
+
     await pool.query(
       `INSERT INTO activity_log (request_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
-      [id, req.session.userId, 'assigned', JSON.stringify({ detail: `Assigned to user ${userId}` })]
+      [id, req.session.userId, 'assigned', JSON.stringify({ detail: `Assigned to ${assigneeName}` })]
     );
 
     res.json({ success: true, data: updated });
 
-    if (emailService && emailTemplates && userId) {
-      const assignee = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
-      if (assignee.rows[0]) {
-        const enrichedDel = await enrichRequestForEmail(updated);
-        const html = emailTemplates.taskAssignment(enrichedDel, assignee.rows[0]);
-        fireEmail(
-          [{ address: assignee.rows[0].email, name: assignee.rows[0].name }],
-          `[CreativeOps] New task assigned: ${updated.title}`,
-          html
-        );
+    try {
+      if (emailService && emailTemplates && userId) {
+        const enrichedReq = await enrichRequestForEmail(updated);
+
+        if (assigneeUser.rows[0]) {
+          const html = emailTemplates.taskAssignment(enrichedReq, assigneeUser.rows[0]);
+          fireEmail(
+            [{ address: assigneeUser.rows[0].email, name: assigneeUser.rows[0].name }],
+            `[CreativeOps] New task assigned: ${updated.title}`,
+            html
+          );
+        }
+
+        if (updated.created_by && updated.created_by !== userId) {
+          const creator = await pool.query('SELECT * FROM users WHERE id = $1', [updated.created_by]);
+          if (creator.rows[0]) {
+            const html = emailTemplates.memberAssigned(enrichedReq, assigneeName);
+            fireEmail(
+              [{ address: creator.rows[0].email, name: creator.rows[0].name }],
+              `[CreativeOps] ${assigneeName} has been assigned to: ${updated.title}`,
+              html
+            );
+          }
+        }
       }
+    } catch (emailErr) {
+      console.error('[email] Reassignment notification failed:', emailErr.message);
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
