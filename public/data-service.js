@@ -125,11 +125,8 @@ const DataService = (() => {
     const effectiveAssetTypeId = firstDel ? firstDel.assetTypeId : data.assetTypeId;
     const effectivePlatforms = firstDel ? firstDel.platforms : (data.platforms || []);
 
-    const assetType = ASSET_TYPES.find(a => a.id === effectiveAssetTypeId);
-    const slaDays = assetType ? assetType.slaDays : 3;
-    const goLive = new Date(data.goLiveDate);
-    const deadline = new Date(goLive);
-    deadline.setDate(deadline.getDate() - slaDays);
+    // Single-date model: the requested date IS the deadline
+    const deadline = new Date(data.goLiveDate);
 
     const tempId = 'temp_' + Date.now();
     const newReq = {

@@ -15,7 +15,9 @@ const FINAL_APPROVER_EMAILS = [
   'sayantan.guha@hoichoi.tv',
   'pritam.ghosh@hoichoi.tv',
   'arnab.bhattacharjee@hoichoi.tv',
-  'arnab.neogi@hoichoi.tv',
+  'sagnik.ghosh@hoichoi.tv',
+  'mangaldeep.karmakar@hoichoi.tv',
+  'keerthana.anand@hoichoi.tv',
   'adhidev.mukherjee@hoichoi.tv',
   'sambhav.khetrapal@hoichoi.tv',
   'sourav.ghosh@svf.in',
@@ -69,8 +71,8 @@ const App = (() => {
 
   /* ── STATUS/PRIORITY HELPERS ───────────────────────────────────────── */
   const statusBadgeMap = {
-    intake: 'badge-gray', brief_approved: 'badge-blue', in_progress: 'badge-blue',
-    first_cut: 'badge-blue', under_review: 'badge-orange', changes_in_progress: 'badge-orange',
+    intake: 'badge-gray',
+    first_cut: 'badge-blue', changes_in_progress: 'badge-orange',
     final_approved: 'badge-green', scheduled: 'badge-green', live: 'badge-green',
   };
 
@@ -129,7 +131,7 @@ const App = (() => {
 
   const viewTitles = {
     dashboard: 'Dashboard', requests: 'Requests', campaigns: 'Campaigns',
-    calendar: 'Calendar', kanban: 'Kanban Board', workload: 'Workload',
+    calendar: 'Calendar', workload: 'Workload',
     assets: 'Assets', timesheet: 'Timesheet', settings: 'Settings',
   };
 
@@ -157,7 +159,6 @@ const App = (() => {
       case 'requests':   container.innerHTML = renderRequests(); break;
       case 'campaigns':  container.innerHTML = renderCampaigns(param); break;
       case 'calendar':   container.innerHTML = renderCalendar(); initCalendarDnD(); break;
-      case 'kanban':     container.innerHTML = renderKanban(); initKanbanDnD(); break;
       case 'workload':   container.innerHTML = renderWorkload(); initWorkloadChart(); initWorkloadDnD(); animateCountUp(); break;
       case 'assets':     container.innerHTML = renderAssets(); break;
       case 'timesheet':  container.innerHTML = renderTimesheet(); break;
@@ -396,8 +397,7 @@ const App = (() => {
               <th>Assigned To</th>
               <th class="sortable ${sortState.key==='status'?'sort-active':''}${sortState.key==='status'&&sortState.dir==='desc'?' sort-desc':''}" onclick="App.sortTable('status')">Status<i data-lucide="arrow-up" class="sort-icon"></i></th>
               <th class="sortable ${sortState.key==='priority'?'sort-active':''}${sortState.key==='priority'&&sortState.dir==='desc'?' sort-desc':''}" onclick="App.sortTable('priority')">Priority<i data-lucide="arrow-up" class="sort-icon"></i></th>
-              <th class="sortable ${sortState.key==='goLiveDate'?'sort-active':''}${sortState.key==='goLiveDate'&&sortState.dir==='desc'?' sort-desc':''}" onclick="App.sortTable('goLiveDate')">Go-Live<i data-lucide="arrow-up" class="sort-icon"></i></th>
-              <th class="sortable ${sortState.key==='internalDeadline'?'sort-active':''}${sortState.key==='internalDeadline'&&sortState.dir==='desc'?' sort-desc':''}" onclick="App.sortTable('internalDeadline')">Deadline<i data-lucide="arrow-up" class="sort-icon"></i></th>
+              <th class="sortable ${sortState.key==='goLiveDate'?'sort-active':''}${sortState.key==='goLiveDate'&&sortState.dir==='desc'?' sort-desc':''}" onclick="App.sortTable('goLiveDate')">Deadline<i data-lucide="arrow-up" class="sort-icon"></i></th>
             </tr>
           </thead>
           <tbody>
@@ -410,8 +410,7 @@ const App = (() => {
                 <td>${r.allAssignees.length > 1 ? `<div class="flex gap-1 items-center">${r.allAssignees.slice(0,3).map(u => renderAvatar(u,'sm')).join('')}${r.allAssignees.length > 3 ? '<span class="text-xs text-faint">+' + (r.allAssignees.length-3) + '</span>' : ''}</div>` : r.assignee ? `<div class="flex gap-2 items-center">${renderAvatar(r.assignee,'sm')}<span class="text-xs">${r.assignee.name.split(' ')[0]}</span></div>` : '<span class="text-faint text-xs">Unassigned</span>'}</td>
                 <td>${statusBadge(r.status)}</td>
                 <td><div class="flex gap-2 items-center">${priorityDot(r.priority)}<span class="text-xs">${PRIORITIES[r.priority].label}</span></div></td>
-                <td class="text-xs font-mono ${r.isOverdue ? 'style="color:var(--color-error)"' : ''}">${formatDate(r.goLiveDate)}</td>
-                <td class="text-xs font-mono ${r.isOverdue ? 'style="color:var(--color-error)"' : r.isAtRisk ? 'style="color:var(--color-warning)"' : ''}">${formatDate(r.internalDeadline)}</td>
+                <td class="text-xs font-mono ${r.isOverdue ? 'style="color:var(--color-error)"' : r.isAtRisk ? 'style="color:var(--color-warning)"' : ''}">${formatDate(r.goLiveDate)}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -449,7 +448,7 @@ const App = (() => {
     const isLead = window.Permissions && window.Permissions.isLead();
     const canUpload = isAssignee || isLead;
     const canApproveThis = window.Permissions && window.Permissions.canApprove(r);
-    const needsReview = ['under_review','first_cut'].includes(r.status);
+    const needsReview = ['first_cut'].includes(r.status);
 
     document.getElementById('panelTitle').textContent = r.title;
     document.getElementById('panelBody').innerHTML = `
@@ -468,16 +467,6 @@ const App = (() => {
         ${r.isExpedited ? '<div class="expedited-warning"><i data-lucide="alert-triangle"></i> Expedited — Go-live date is within SLA window</div>' : ''}
       </div>
 
-      <!-- Uploaded Assets — prominent review section -->
-      <div class="panel-section" id="assetReviewSection">
-        <div class="panel-section-title" style="display:flex;justify-content:space-between;align-items:center;">
-          <span><i data-lucide="folder-open" style="width:16px;height:16px;display:inline;vertical-align:text-bottom;margin-right:4px"></i> Uploaded Assets</span>
-          ${canUpload ? `<button class="btn btn-primary btn-sm" onclick="App.uploadVersion('${r.id}')"><i data-lucide="upload"></i> Upload File</button>` : ''}
-        </div>
-        <div id="assetFilesList" style="margin-top:8px;">
-          <div style="text-align:center;padding:16px;color:var(--color-text-muted);font-size:0.8rem;">Loading files...</div>
-        </div>
-      </div>
 
       ${canApproveThis && needsReview ? `
       <!-- Approval Actions — clear section for approvers -->
@@ -519,8 +508,7 @@ const App = (() => {
           <div class="detail-field"><label>Asset Type</label><p>${r.assetType ? r.assetType.name : '—'}</p></div>
           <div class="detail-field"><label>Priority</label><p><span class="flex gap-2 items-center">${priorityDot(r.priority)} ${PRIORITIES[r.priority].label}</span></p></div>
           <div class="detail-field"><label>Status</label><p>${statusBadge(r.status)}</p></div>
-          <div class="detail-field"><label>Go-Live Date</label><p class="font-mono">${formatDate(r.goLiveDate)}</p></div>
-          <div class="detail-field"><label>Internal Deadline</label><p class="font-mono ${r.isOverdue ? 'style="color:var(--color-error)"' : ''}">${formatDate(r.internalDeadline)}</p></div>
+          <div class="detail-field"><label>Deadline</label><p class="font-mono ${r.isOverdue ? 'style="color:var(--color-error)"' : ''}">${formatDate(r.goLiveDate)}</p></div>
           <div class="detail-field"><label>Assigned Team</label><p>${r.assignedTeam ? (TEAM_NAMES[r.assignedTeam] || r.assignedTeam) : '<span class="text-faint">—</span>'}</p></div>
           <div class="detail-field"><label>Assigned To</label><p>
             ${window.Permissions && window.Permissions.canAssignRequest(r) ? `<span class="assignee-dropdown-trigger" onclick="App.toggleAssigneeDropdown(event, '${r.id}')">
@@ -1052,8 +1040,8 @@ const App = (() => {
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Go-Live Date *</label>
-          <input class="form-input" type="date" id="reqGoLive" style="max-width:220px" onchange="App.updateAutoPriority()">
+          <label class="form-label">Deadline *</label>
+          <input class="form-input" type="date" id="reqGoLive" style="max-width:220px" min="${new Date().toISOString().split('T')[0]}" onchange="App.updateAutoPriority()">
         </div>
         <div class="form-group">
           <label class="form-label">Auto Priority</label>
@@ -1129,14 +1117,6 @@ const App = (() => {
         </div>
       </div>
 
-      <div class="form-group">
-        <label class="form-label">Attachments</label>
-        <div style="border:2px dashed var(--color-border);border-radius:var(--radius-lg);padding:var(--space-6);text-align:center;color:var(--color-text-faint);font-size:var(--text-xs)">
-          <i data-lucide="upload-cloud" style="display:inline-block;width:24px;height:24px;margin-bottom:var(--space-2)"></i><br>
-          Drop files here or click to upload<br>
-          <span style="font-size:10px">(Mock — upload wired in Supabase integration)</span>
-        </div>
-      </div>
     `;
 
     document.getElementById('modalOverlay').classList.add('open');
@@ -1251,7 +1231,13 @@ const App = (() => {
     // Validate deliverables
     const validDels = modalDeliverables.filter(d => d.assetTypeId && d.platforms.length > 0);
     if (!title || !goLiveDate || validDels.length === 0) {
-      showToast('Please fill in title, go-live date, and at least one deliverable with asset type and platform.', 'error');
+      showToast('Please fill in title, deadline, and at least one deliverable with asset type and platform.', 'error');
+      return;
+    }
+    // Block past dates
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (goLiveDate < todayStr) {
+      showToast('Deadline cannot be in the past.', 'error');
       return;
     }
     if (!assignedTeam) {
@@ -1661,18 +1647,29 @@ const App = (() => {
     lucide.createIcons();
   }
 
+  function isCalendarTeamHead() {
+    const cu = window.__currentUser;
+    if (!cu) return false;
+    if (window.Permissions && (window.Permissions.isAdmin && window.Permissions.isAdmin())) return true;
+    const teamHeadEmails = ['arnab.bhattacharjee@hoichoi.tv','sagnik.ghosh@hoichoi.tv','mangaldeep.karmakar@hoichoi.tv'];
+    return cu.email && teamHeadEmails.includes(cu.email.toLowerCase());
+  }
+
   function renderCalendar() {
     const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
     const currentUserId = window.__currentUser ? window.__currentUser.id : null;
     const events = DataService.getRequestsByDate(calendarYear, calendarMonth);
-    const allReqs = DataService.getRequests();
+    const teamHead = isCalendarTeamHead();
+    // Force "show mine" for non-team-heads
+    const showMine = teamHead ? calendarShowMine : true;
 
     function filterByUser(reqList) {
-      if (!calendarShowMine || !currentUserId) return reqList;
+      if (!showMine || !currentUserId) return reqList;
       return reqList.filter(r => {
         if (r.assignedTo === currentUserId) return true;
         if (r.createdBy === currentUserId) return true;
+        if (r.approverId === currentUserId) return true;
         if (r.deliverables && r.deliverables.some(d => d.assignedTo === currentUserId)) return true;
         return false;
       });
@@ -1682,18 +1679,6 @@ const App = (() => {
     Object.keys(events).forEach(dateStr => {
       const filtered = filterByUser(events[dateStr]);
       if (filtered.length) filteredEvents[dateStr] = filtered;
-    });
-
-    const deadlineMap = {};
-    filterByUser(allReqs).forEach(r => {
-      if (r.internalDeadline) {
-        const rd = new Date(r.internalDeadline);
-        if (rd.getFullYear() === calendarYear && rd.getMonth() === calendarMonth) {
-          const dk = r.internalDeadline;
-          if (!deadlineMap[dk]) deadlineMap[dk] = [];
-          deadlineMap[dk].push(r);
-        }
-      }
     });
 
     const firstDay = (new Date(calendarYear, calendarMonth, 1).getDay() + 6) % 7;
@@ -1713,7 +1698,7 @@ const App = (() => {
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       const dayEvents = filteredEvents[dateStr] || [];
-      const deadlineEvents = (deadlineMap[dateStr] || []);
+      const deadlineEvents = [];
       const now = new Date();
       const isToday = calendarYear === now.getFullYear() && calendarMonth === now.getMonth() && d === now.getDate();
       const isWeekend = (cellIndex % 7) >= 5;
@@ -1757,16 +1742,15 @@ const App = (() => {
           <button class="btn btn-ghost btn-sm" onclick="App.nextMonth()"><i data-lucide="chevron-right"></i></button>
         </div>
         <div class="flex gap-2" style="align-items:center">
-          <button class="btn ${calendarShowMine ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="App.toggleCalendarMine()">
+          ${teamHead ? `<button class="btn ${calendarShowMine ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="App.toggleCalendarMine()">
             <i data-lucide="${calendarShowMine ? 'user' : 'users'}"></i> ${calendarShowMine ? userName + "'s Tasks" : 'All Tasks'}
-          </button>
+          </button>` : ''}
           <button class="btn btn-secondary btn-sm" onclick="App.calendarToday()">Today</button>
         </div>
       </div>
 
       <div class="calendar-legend">
-        <div class="calendar-legend-item"><div class="calendar-legend-dot" style="background:var(--color-primary)"></div> Go-Live</div>
-        <div class="calendar-legend-item"><div class="calendar-legend-dot" style="background:var(--color-warning)"></div> Internal Deadline</div>
+        <div class="calendar-legend-item"><div class="calendar-legend-dot" style="background:var(--color-primary)"></div> Deadline</div>
       </div>
 
       <div class="calendar-grid">
@@ -1887,9 +1871,12 @@ const App = (() => {
     const currentUserId = window.__currentUser ? window.__currentUser.id : null;
     const events = DataService.getRequestsByDate(calendarYear, calendarMonth);
     let dayEvents = events[dateStr] || [];
-    if (calendarShowMine && currentUserId) {
+    const teamHead = isCalendarTeamHead();
+    const showMine = teamHead ? calendarShowMine : true;
+    if (showMine && currentUserId) {
       dayEvents = dayEvents.filter(r =>
         r.assignedTo === currentUserId || r.createdBy === currentUserId ||
+        r.approverId === currentUserId ||
         (r.deliverables && r.deliverables.some(d => d.assignedTo === currentUserId))
       );
     }
@@ -1939,10 +1926,7 @@ const App = (() => {
 
     const columns = [
       { key: 'intake', label: 'Intake' },
-      { key: 'brief_approved', label: 'Brief Approved' },
-      { key: 'in_progress', label: 'In Progress' },
       { key: 'first_cut', label: 'First Cut' },
-      { key: 'under_review', label: 'Under Review' },
       { key: 'changes_in_progress', label: 'Changes' },
       { key: 'final_approved', label: 'Final Approved' },
       { key: 'scheduled', label: 'Scheduled' },
@@ -3035,9 +3019,6 @@ const App = (() => {
         <div class="asset-card-footer-v2">
           ${r.assignee ? renderAvatar(r.assignee, 'sm') : '<span></span>'}
           <div class="flex gap-1">
-            ${canUpload ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.triggerAssetUpload('${r.id}')" title="Upload new version">
-              <i data-lucide="upload"></i>
-            </button>` : ''}
             ${canDownload ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.viewRequestFiles('${r.id}')" title="View & download files">
               <i data-lucide="download"></i>
             </button>` : ''}
@@ -3063,7 +3044,6 @@ const App = (() => {
       <td><span class="asset-version-badge">v${r.latestVersion}</span></td>
       <td>${r.assignee ? renderAvatar(r.assignee, 'sm') : ''}</td>
       <td class="flex gap-1">
-        ${canUpload ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.triggerAssetUpload('${r.id}')" title="Upload"><i data-lucide="upload"></i></button>` : ''}
         ${canDownload ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App.viewRequestFiles('${r.id}')" title="Download"><i data-lucide="download"></i></button>` : ''}
       </td>
     </tr>`;
@@ -3748,7 +3728,7 @@ const App = (() => {
       if (pendingG) {
         clearTimeout(pendingGTimer);
         pendingG = false;
-        const goMap = { d: 'dashboard', c: 'campaigns', r: 'requests', k: 'kanban', w: 'workload', l: 'calendar', a: 'assets', t: 'timesheet', s: 'settings' };
+        const goMap = { d: 'dashboard', c: 'campaigns', r: 'requests', w: 'workload', l: 'calendar', a: 'assets', t: 'timesheet', s: 'settings' };
         const dest = goMap[e.key.toLowerCase()];
         if (dest) { e.preventDefault(); navigate(dest); }
         return;
@@ -3808,10 +3788,7 @@ const App = (() => {
       window.CONTENT_SCHEDULE = window.CONTENT_SCHEDULE || [];
       window.STATUSES = window.STATUSES || {
         intake: { label: 'Intake', color: 'gray', cssClass: 'status-intake' },
-        brief_approved: { label: 'Brief Approved', color: 'blue', cssClass: 'status-brief-approved' },
-        in_progress: { label: 'In Progress', color: 'blue', cssClass: 'status-in-progress' },
         first_cut: { label: 'First Cut', color: 'blue', cssClass: 'status-first-cut' },
-        under_review: { label: 'Under Review', color: 'orange', cssClass: 'status-under-review' },
         changes_in_progress: { label: 'Changes in Progress', color: 'orange', cssClass: 'status-changes' },
         final_approved: { label: 'Final Approved', color: 'green', cssClass: 'status-approved' },
         scheduled: { label: 'Scheduled', color: 'green', cssClass: 'status-scheduled' },

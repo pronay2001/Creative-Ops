@@ -244,10 +244,7 @@ const SupabaseClient = (() => {
 
     window.STATUSES = {
       intake:              { label: 'Intake',              color: 'gray',    cssClass: 'status-intake' },
-      brief_approved:      { label: 'Brief Approved',      color: 'blue',    cssClass: 'status-brief-approved' },
-      in_progress:         { label: 'In Progress',         color: 'blue',    cssClass: 'status-in-progress' },
       first_cut:           { label: 'First Cut',           color: 'blue',    cssClass: 'status-first-cut' },
-      under_review:        { label: 'Under Review',        color: 'orange',  cssClass: 'status-under-review' },
       changes_in_progress: { label: 'Changes in Progress', color: 'orange',  cssClass: 'status-changes' },
       final_approved:      { label: 'Final Approved',      color: 'green',   cssClass: 'status-approved' },
       scheduled:           { label: 'Scheduled',           color: 'green',   cssClass: 'status-scheduled' },

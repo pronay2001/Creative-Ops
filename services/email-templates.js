@@ -73,8 +73,7 @@ function taskAssignment(request, assignee) {
 ${detailRow('Status', statusLabel(request.status))}
 ${detailRow('Asset Type', request.asset_type_id)}
 ${detailRow('Campaign', request.campaign_name || (request.campaign && request.campaign.name))}
-${detailRow('Go-Live Date', formatDate(request.go_live_date))}
-${detailRow('Internal Deadline', formatDate(request.internal_deadline))}
+${detailRow('Deadline', formatDate(request.go_live_date))}
 ${detailRow('Created By', request.creator_name)}
 ${detailRow('Vertical', request.vertical)}
 </table>
@@ -108,8 +107,7 @@ function statusChange(request, oldStatus, newStatus) {
 <tr><td style="padding:4px 0;"><span style="color:#6b7280;font-size:13px;">Priority:</span></td><td style="padding:4px 12px;">${priorityBadge(request.priority)}</td></tr>
 ${detailRow('Asset Type', request.asset_type_id)}
 ${detailRow('Campaign', request.campaign_name || (request.campaign && request.campaign.name))}
-${detailRow('Go-Live Date', formatDate(request.go_live_date))}
-${detailRow('Internal Deadline', formatDate(request.internal_deadline))}
+${detailRow('Deadline', formatDate(request.go_live_date))}
 ${detailRow('Assigned To', request.assignee_name)}
 ${detailRow('Vertical', request.vertical)}
 </table>
@@ -133,7 +131,7 @@ function newComment(request, commenter, commentText) {
 <span style="color:#6b7280;font-size:12px;">Priority: </span>${priorityBadge(request.priority)}
 </td></tr>
 ${detailRow('Asset Type', request.asset_type_id)}
-${detailRow('Deadline', formatDate(request.internal_deadline || request.go_live_date))}
+${detailRow('Deadline', formatDate(request.go_live_date))}
 </table>
 </td></tr>
 </table>
@@ -156,8 +154,7 @@ ${comment ? `<p style="color:#9ca3af;font-size:13px;margin:0 0 12px;border-top:1
 <tr><td style="padding:4px 0;"><span style="color:#6b7280;font-size:13px;">Priority:</span></td><td style="padding:4px 12px;">${priorityBadge(request.priority)}</td></tr>
 ${detailRow('Asset Type', request.asset_type_id)}
 ${detailRow('Campaign', request.campaign_name || (request.campaign && request.campaign.name))}
-${detailRow('Go-Live Date', formatDate(request.go_live_date))}
-${detailRow('Internal Deadline', formatDate(request.internal_deadline))}
+${detailRow('Deadline', formatDate(request.go_live_date))}
 ${detailRow('Assigned To', request.assignee_name)}
 ${detailRow('Vertical', request.vertical)}
 </table>
@@ -177,8 +174,7 @@ function memberAssigned(request, assigneeName) {
 <tr><td style="padding:4px 0;"><span style="color:#6b7280;font-size:13px;">Priority:</span></td><td style="padding:4px 12px;">${priorityBadge(request.priority)}</td></tr>
 ${detailRow('Asset Type', request.asset_type_id)}
 ${detailRow('Campaign', request.campaign_name || (request.campaign && request.campaign.name))}
-${detailRow('Go-Live Date', formatDate(request.go_live_date))}
-${detailRow('Internal Deadline', formatDate(request.internal_deadline))}
+${detailRow('Deadline', formatDate(request.go_live_date))}
 ${detailRow('Assigned To', assigneeName)}
 ${detailRow('Vertical', request.vertical)}
 </table>
