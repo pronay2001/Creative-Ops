@@ -104,6 +104,7 @@ const DataService = (() => {
       );
     }
     if (filters.platform) results = results.filter(r => r.platforms.includes(filters.platform));
+    if (filters.assignedTeam) results = results.filter(r => r.assignedTeam === filters.assignedTeam);
     if (filters.priority) results = results.filter(r => r.priority === filters.priority);
     if (filters.search) {
       const q = filters.search.toLowerCase();

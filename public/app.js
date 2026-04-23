@@ -133,7 +133,7 @@ const App = (() => {
   const viewTitles = {
     dashboard: 'Dashboard', requests: 'Requests', campaigns: 'Campaigns',
     calendar: 'Calendar', workload: 'Workload',
-    assets: 'Assets', timesheet: 'Timesheet', settings: 'Settings',
+    assets: 'Assets', settings: 'Settings',
   };
 
   function updateTopbarTitle(view) {
@@ -162,7 +162,6 @@ const App = (() => {
       case 'calendar':   container.innerHTML = renderCalendar(); initCalendarDnD(); break;
       case 'workload':   container.innerHTML = renderWorkload(); initWorkloadChart(); initWorkloadDnD(); animateCountUp(); break;
       case 'assets':     container.innerHTML = renderAssets(); break;
-      case 'timesheet':  container.innerHTML = renderTimesheet(); break;
       case 'settings':   container.innerHTML = renderSettings(); break;
       default:           container.innerHTML = renderDashboard(); initDashboardChart(); break;
     }
@@ -370,6 +369,10 @@ const App = (() => {
           <option value="">All Campaigns</option>
           ${campaigns.map(c => `<option value="${c.id}" ${filters.campaignId===c.id?'selected':''}>${c.name}</option>`).join('')}
         </select>
+        <select class="filter-select" onchange="App.filterRequests('assignedTeam', this.value)">
+          <option value="">All Teams</option>
+          ${Object.entries(TEAM_NAMES).map(([k,v]) => `<option value="${k}" ${filters.assignedTeam===k?'selected':''}>${v}</option>`).join('')}
+        </select>
         ${Object.keys(filters).length > 0 ? '<button class="btn btn-ghost btn-sm" onclick="App.clearFilters()"><i data-lucide="x"></i> Clear</button>' : ''}
       </div>
 
@@ -381,7 +384,8 @@ const App = (() => {
           if (k === 'campaignId') { const c = DataService.getCampaignById(v); label = c ? c.name : v; }
           if (k === 'assetTypeId') { const a = ASSET_TYPES.find(at => at.id === v); label = a ? a.name : v; }
           if (k === 'platform') { const p = PLATFORMS.find(pl => pl.id === v); label = p ? p.name : v; }
-          const keyLabel = { status:'Status', assetTypeId:'Type', platform:'Platform', assignedTo:'Assignee', campaignId:'Campaign' }[k] || k;
+          if (k === 'assignedTeam') label = TEAM_NAMES[v] || v;
+          const keyLabel = { status:'Status', assetTypeId:'Type', platform:'Platform', assignedTo:'Assignee', campaignId:'Campaign', assignedTeam:'Team' }[k] || k;
           return `<span class="filter-pill">${keyLabel}: ${label}<span class="filter-pill-remove" onclick="event.stopPropagation();App.filterRequests('${k}','')"><i data-lucide="x" style="width:10px;height:10px"></i></span></span>`;
         }).join('')}
       </div>` : ''}
