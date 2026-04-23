@@ -300,6 +300,7 @@ UPDATE deliverables SET asset_type_id = 'cms_thumbnail_refresh' WHERE asset_type
 
 const hierarchyBootstrap = `
 UPDATE users SET hierarchy_level = 'admin' WHERE LOWER(email) = 'pronay.roy@hoichoi.tv' AND (hierarchy_level IS NULL OR hierarchy_level = 'team');
+UPDATE users SET hierarchy_level = 'admin' WHERE LOWER(email) = 'sayantan.guha@hoichoi.tv';
 `;
 
 async function migrate() {
