@@ -6,7 +6,8 @@
 const TEAM_NAMES = {
   graphics: 'Graphics Team',
   video: 'Video Team',
-  motion_graphics: 'Motion Graphics Team'
+  motion_graphics: 'Motion Graphics Team',
+  logline: 'Logline Team'
 };
 
 const FINAL_APPROVER_EMAILS = [
@@ -1062,6 +1063,7 @@ const App = (() => {
             <option value="graphics">Graphics Team</option>
             <option value="video">Video Team</option>
             <option value="motion_graphics">Motion Graphics Team</option>
+            <option value="logline">Logline Team</option>
           </select>
           <span class="text-xs text-faint" style="margin-top:var(--space-1);display:block">The respective team lead will be notified and can assign to a team member</span>
         </div>

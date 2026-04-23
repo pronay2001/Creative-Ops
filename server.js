@@ -80,7 +80,8 @@ const HIERARCHY_LEVELS = ['admin', 'manager', 'team'];
 const TEAM_LEADS = {
   graphics: { name: 'Graphics Team', email: 'sagnik.ghosh@hoichoi.tv' },
   video: { name: 'Video Team', email: 'arnab.bhattacharjee@hoichoi.tv' },
-  motion_graphics: { name: 'Motion Graphics Team', email: 'mangaldeep.karmakar@hoichoi.tv' }
+  motion_graphics: { name: 'Motion Graphics Team', email: 'mangaldeep.karmakar@hoichoi.tv' },
+  logline: { name: 'Logline Team', email: 'mandar.banerjee@hoichoi.tv' }
 };
 
 async function resolveTeamLead(teamKey) {
