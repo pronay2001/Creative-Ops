@@ -79,6 +79,17 @@ const SupabaseClient = (() => {
     };
   }
 
+  function toDateOnly(v) {
+    if (!v) return '';
+    if (v instanceof Date) {
+      const y = v.getFullYear(), m = String(v.getMonth()+1).padStart(2,'0'), d = String(v.getDate()).padStart(2,'0');
+      return `${y}-${m}-${d}`;
+    }
+    const s = String(v);
+    if (s.length >= 10 && s[4] === '-' && s[7] === '-') return s.substring(0, 10);
+    return s;
+  }
+
   function requestFromRow(r) {
     const deliverables = (r.deliverables || []).map(d => ({
       id: d.id,
@@ -97,8 +108,8 @@ const SupabaseClient = (() => {
       assignedTo: r.assigned_to || r.assignedTo || null,
       status: r.status,
       priority: r.priority,
-      goLiveDate: r.go_live_date || r.goLiveDate || '',
-      internalDeadline: r.internal_deadline || r.internalDeadline || '',
+      goLiveDate: toDateOnly(r.go_live_date || r.goLiveDate),
+      internalDeadline: toDateOnly(r.internal_deadline || r.internalDeadline),
       createdDate: r.created_date ? r.created_date.split('T')[0] : '',
       createdBy: r.created_by || r.createdBy || '',
       brief: r.brief || {},
