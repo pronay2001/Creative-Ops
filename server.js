@@ -698,20 +698,33 @@ app.post('/api/requests', async (req, res) => {
     res.json(row);
 
     try {
-      if (emailService && emailTemplates && assignedTo) {
-        const assignee = await pool.query('SELECT * FROM users WHERE id = $1', [assignedTo]);
-        if (assignee.rows[0]) {
-          const enrichedRow = await enrichRequestForEmail(row);
-          const html = emailTemplates.taskAssignment(enrichedRow, assignee.rows[0]);
-          fireEmail(
-            [{ address: assignee.rows[0].email, name: assignee.rows[0].name }],
-            `[CreativeOps] New task assigned: ${title}`,
-            html
-          );
+      if (emailService && emailTemplates) {
+        const enrichedRow = await enrichRequestForEmail(row);
+        if (assignedTo) {
+          const assignee = await pool.query('SELECT * FROM users WHERE id = $1', [assignedTo]);
+          if (assignee.rows[0]) {
+            const html = emailTemplates.taskAssignment(enrichedRow, assignee.rows[0]);
+            fireEmail(
+              [{ address: assignee.rows[0].email, name: assignee.rows[0].name }],
+              `[CreativeOps] New task assigned: ${title}`,
+              html
+            );
+          }
+        }
+        if (approverId) {
+          const approver = await pool.query('SELECT * FROM users WHERE id = $1', [approverId]);
+          if (approver.rows[0]) {
+            const html = emailTemplates.approverAssignment(enrichedRow, approver.rows[0]);
+            fireEmail(
+              [{ address: approver.rows[0].email, name: approver.rows[0].name }],
+              `[CreativeOps] You're the approver for: ${title}`,
+              html
+            );
+          }
         }
       }
     } catch (emailErr) {
-      console.error('[email] Create-assign notification failed:', emailErr.message);
+      console.error('[email] Create notification failed:', emailErr.message);
     }
   } catch (err) {
     console.error('[POST /api/requests]', err.message);
@@ -827,20 +840,19 @@ app.patch('/api/requests/:id', async (req, res) => {
         `INSERT INTO activity_log (request_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
         [id, req.session.userId, 'status_changed', JSON.stringify({ detail: `Status changed from ${oldData.status} to ${fields.status}`, oldStatus: oldData.status, newStatus: fields.status })]
       );
-      if (emailService && emailTemplates) {
-        const recipients = [];
-        if (updated.assigned_to) {
-          const a = await pool.query('SELECT * FROM users WHERE id = $1', [updated.assigned_to]);
-          if (a.rows[0]) recipients.push({ address: a.rows[0].email, name: a.rows[0].name });
-        }
-        if (updated.created_by && updated.created_by !== updated.assigned_to) {
-          const c = await pool.query('SELECT * FROM users WHERE id = $1', [updated.created_by]);
-          if (c.rows[0]) recipients.push({ address: c.rows[0].email, name: c.rows[0].name });
-        }
-        if (recipients.length) {
-          const enrichedUpd = await enrichRequestForEmail(updated);
-          const html = emailTemplates.statusChange(enrichedUpd, oldData.status, fields.status);
-          fireEmail(recipients, `[CreativeOps] Status update: ${updated.title} → ${fields.status}`, html);
+      if (emailService && emailTemplates && fields.status === 'final_approved') {
+        const ids = new Set();
+        if (updated.assigned_to) ids.add(updated.assigned_to);
+        if (updated.created_by) ids.add(updated.created_by);
+        if (updated.approver_id) ids.add(updated.approver_id);
+        if (ids.size) {
+          const us = await pool.query('SELECT * FROM users WHERE id = ANY($1)', [Array.from(ids)]);
+          const recipients = us.rows.map(u => ({ address: u.email, name: u.name }));
+          if (recipients.length) {
+            const enrichedUpd = await enrichRequestForEmail(updated);
+            const html = emailTemplates.finalApproved(enrichedUpd);
+            fireEmail(recipients, `[CreativeOps] Final approved: ${updated.title}`, html);
+          }
         }
       }
     }
@@ -863,20 +875,28 @@ app.patch('/api/requests/:id', async (req, res) => {
               html
             );
           }
-          if (updated.created_by && updated.created_by !== fields.assignedTo) {
-            const creator = await pool.query('SELECT * FROM users WHERE id = $1', [updated.created_by]);
-            if (creator.rows[0]) {
-              const html2 = emailTemplates.memberAssigned(enrichedUpd2, reassignName);
-              fireEmail(
-                [{ address: creator.rows[0].email, name: creator.rows[0].name }],
-                `[CreativeOps] ${reassignName} has been assigned to: ${updated.title}`,
-                html2
-              );
-            }
-          }
         } catch (emailErr) {
           console.error('[email] Reassignment notification failed:', emailErr.message);
         }
+      }
+    }
+
+    if (isApproverChange && fields.approverId && fields.approverId !== oldData.approver_id) {
+      try {
+        if (emailService && emailTemplates) {
+          const approverRow2 = await pool.query('SELECT * FROM users WHERE id = $1', [fields.approverId]);
+          if (approverRow2.rows[0]) {
+            const enrichedApp = await enrichRequestForEmail(updated);
+            const html = emailTemplates.approverAssignment(enrichedApp, approverRow2.rows[0]);
+            fireEmail(
+              [{ address: approverRow2.rows[0].email, name: approverRow2.rows[0].name }],
+              `[CreativeOps] You're the approver for: ${updated.title}`,
+              html
+            );
+          }
+        }
+      } catch (emailErr) {
+        console.error('[email] Approver assignment notification failed:', emailErr.message);
       }
     }
 
@@ -1005,20 +1025,19 @@ app.post('/api/requests/:id/status', async (req, res) => {
 
     res.json({ success: true, data: request });
 
-    if (emailService && emailTemplates) {
-      const recipients = [];
-      if (request.assigned_to) {
-        const a = await pool.query('SELECT * FROM users WHERE id = $1', [request.assigned_to]);
-        if (a.rows[0]) recipients.push({ address: a.rows[0].email, name: a.rows[0].name });
-      }
-      if (request.created_by && request.created_by !== request.assigned_to) {
-        const c = await pool.query('SELECT * FROM users WHERE id = $1', [request.created_by]);
-        if (c.rows[0]) recipients.push({ address: c.rows[0].email, name: c.rows[0].name });
-      }
-      if (recipients.length) {
-        const enrichedReq = await enrichRequestForEmail(request);
-        const html = emailTemplates.statusChange(enrichedReq, oldStatus, status);
-        fireEmail(recipients, `[CreativeOps] Status update: ${request.title} → ${status}`, html);
+    if (emailService && emailTemplates && status === 'final_approved') {
+      const ids = new Set();
+      if (request.assigned_to) ids.add(request.assigned_to);
+      if (request.created_by) ids.add(request.created_by);
+      if (request.approver_id) ids.add(request.approver_id);
+      if (ids.size) {
+        const us = await pool.query('SELECT * FROM users WHERE id = ANY($1)', [Array.from(ids)]);
+        const recipients = us.rows.map(u => ({ address: u.email, name: u.name }));
+        if (recipients.length) {
+          const enrichedReq = await enrichRequestForEmail(request);
+          const html = emailTemplates.finalApproved(enrichedReq);
+          fireEmail(recipients, `[CreativeOps] Final approved: ${request.title}`, html);
+        }
       }
     }
   } catch (err) {
@@ -1184,7 +1203,7 @@ app.post('/api/requests/:id/comments', async (req, res) => {
 
     res.json(result.rows[0]);
 
-    if (emailService && emailTemplates) {
+    if (false) {
       const request = await pool.query('SELECT * FROM requests WHERE id = $1', [id]);
       const allCommenters = await pool.query('SELECT DISTINCT user_id FROM comments WHERE request_id = $1', [id]);
       const recipientIds = new Set();
