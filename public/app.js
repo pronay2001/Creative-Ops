@@ -218,7 +218,7 @@ const App = (() => {
     if (!pendingApprovals || pendingApprovals.length === 0) {
       return '<div id="pendingApprovalsWidget" style="display:none"></div>';
     }
-    const items = pendingApprovals.slice(0, 5).map(r => {
+    const items = pendingApprovals.map(r => {
       const requester = DataService.getUserById(r.createdBy);
       const requesterName = requester ? requester.name : 'Unknown';
       return `<div class="widget-list-item" onclick="App.openRequestDetail('${r.id}')">
@@ -238,7 +238,7 @@ const App = (() => {
         </span>
         <span class="text-xs" style="color:var(--color-error);font-weight:600">${pendingApprovals.length} ${pendingApprovals.length === 1 ? 'item' : 'items'}</span>
       </div>
-      <div class="dashboard-widget-body">${items}</div>
+      <div class="dashboard-widget-body" style="max-height:360px;overflow-y:auto">${items}</div>
     </div>`;
   }
 
