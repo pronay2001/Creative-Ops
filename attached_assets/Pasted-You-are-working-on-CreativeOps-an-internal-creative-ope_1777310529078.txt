@@ -1,0 +1,127 @@
+You are working on CreativeOps, an internal creative operations management tool for Hoichoi (hoichoi.tv).
+Tech stack: Node.js + Express.js backend, PostgreSQL database, vanilla JS/HTML/CSS frontend.
+No build step. All backend logic is in server.js. Frontend is in public/app.js, public/storage-client.js, public/data-service.js, public/style.css, public/index.html.
+
+DO NOT modify data-service.js. DO NOT break the public API of storage-client.js (method names and return shapes must stay the same). Only touch app.js and index.html for the specific UI fixes listed below.
+
+Fix all of the following issues in order:
+
+---
+
+## 1. SQL INJECTION — Column whitelist in PATCH /api/campaigns/:id
+In server.js, the PATCH /api/campaigns/:id endpoint builds SQL dynamically using column names from the request body without validation. Add a whitelist array of allowed column names (e.g. ['title', 'status', 'brief', 'brand', 'platform', 'go_live_date', 'internal_deadline', 'vertical', 'budget']). Before building the SQL SET clause, filter out any keys not in the whitelist and return 400 if no valid columns remain.
+
+## 2. STATUS TRANSITION VALIDATION
+In server.js, the PATCH /api/requests/:id/status endpoint allows arbitrary status jumps. Add a state machine map defining valid transitions:
+  intake → in_progress
+  in_progress → first_cut, changes_in_progress
+  first_cut → under_review, changes_in_progress
+  changes_in_progress → first_cut, under_review
+  under_review → final_approved, changes_in_progress
+  final_approved → live
+  live → (terminal, no further transitions)
+If the requested next status is not in the allowed list for the current status, return 400 with a clear error message like "Invalid status transition from X to Y".
+
+## 3. ENABLE COMMENT NOTIFICATION EMAILS
+In server.js, find the comment notification block that is wrapped in `if (false) { ... }`. Remove the `if (false)` wrapper so comment emails actually send. The email should notify the request creator and assignee when a new comment is posted by someone other than themselves. Use the existing email service and templates already in place.
+
+## 4. DELIVERABLE 404 GUARD
+In server.js, the PATCH /api/deliverables/:id endpoint does not check if the deliverable exists before updating. After running the UPDATE query, check if `result.rowCount === 0` and return 404 with `{ error: 'Deliverable not found' }` if so.
+
+## 5. TIMESHEET RACE CONDITION FIX
+In server.js, wrap the clock-start and clock-stop logic in a PostgreSQL transaction using BEGIN / COMMIT / ROLLBACK. Before inserting a new clock-in entry, do a SELECT ... FOR UPDATE on the user's latest open clock entry. If one exists and you're trying to start a new one, return 409 Conflict. This prevents duplicate timesheet entries from concurrent requests.
+
+## 6. APPROVER TEAM VALIDATION
+In server.js, when setting an approver on a request (PATCH /api/requests/:id with approver_id), validate that:
+  - The approver_id corresponds to a real user in the database
+  - That user has hierarchy_level = 'manager' or 'admin'
+  - Return 400 with a descriptive error if either check fails
+Also add a check: a requester-role user cannot set an approver on a request they don't own.
+
+---
+
+## 7. KNOWLEDGE BASE TAG FILTERING
+In server.js, the GET /api/knowledge endpoint currently returns all entries. Add an optional `?tag=` query parameter. If provided, filter entries using `WHERE tags @> ARRAY[$1]::text[]` (PostgreSQL array contains). Return only matching entries. Also in the same endpoint, add a `?search=` query param that does a case-insensitive ILIKE match on title and content.
+
+## 8. ASSET VERSION — ACTIVE VERSION MARKING
+In the asset_files table (db/migrate.js), add a migration step that adds a boolean column `is_active` defaulting to false. When a new file is uploaded for a request (POST /api/requests/:id/upload in server.js), after inserting the new file row, run an UPDATE to set `is_active = false` on all previous files for that request, then set `is_active = true` on the newly inserted file. Update GET /api/requests/:id/files to return `is_active` in the response. Do not change the frontend.
+
+## 9. CSV IMPORT ROW-LEVEL ERROR DETAILS
+In server.js, the POST /api/users/import-csv endpoint currently counts skipped rows but doesn't log which rows failed or why. Change the response to include a `failed_rows` array. Each entry should be an object: `{ row_number, email, reason }` where reason is one of: 'invalid_email_domain', 'missing_required_field', 'invalid_email_format', 'db_error'. Keep the existing summary counts as well.
+
+## 10. DELIVERABLE REASSIGNMENT EMAIL — NOTIFY CREATOR
+In server.js, when a deliverable is reassigned (PATCH /api/deliverables/:id with a new assignee_id), after sending the email to the new assignee, also send an email to the request creator (look up the parent request's created_by user). Use the existing email service. Subject: "Your request has been reassigned". Include the request title, new assignee name, and a link to the request.
+
+## 11. APPROVALS INBOX — PENDING APPROVALS ENDPOINT
+Add a new GET /api/requests/pending-approvals endpoint in server.js. It should return all requests where:
+  - approver_id = the currently logged-in user's id
+  - status is in ('first_cut', 'under_review')
+  Requires authentication. Return same shape as other request list endpoints.
+
+In public/app.js, add a badge on the top navigation for approvers. If the user's role is 'approver' or hierarchy_level is 'manager'/'admin', call /api/requests/pending-approvals on page load and display a red badge with the count next to a bell icon or the "Requests" nav item. Update the badge count when requests are approved or rejected.
+
+## 12. CAMPAIGN SOFT DELETE (ARCHIVAL)
+In server.js, change DELETE /api/campaigns/:id to a soft delete. Add an `archived_at` timestamptz column to the campaigns table (in db/migrate.js via a migration step, using ALTER TABLE IF NOT EXISTS pattern). Instead of deleting, set `archived_at = NOW()`. Update GET /api/campaigns to filter out archived campaigns by default (WHERE archived_at IS NULL). Do not hard-delete requests when archiving a campaign.
+Add a new endpoint: POST /api/campaigns/:id/restore that sets archived_at = NULL for admins only.
+
+---
+
+## 13. BUSINESS HOURS — CLIENT-SIDE GATE
+In public/app.js, find where the "New Request" button is rendered. Add a client-side check: compute the current time in IST (UTC+5:30). If the day is Saturday or Sunday, or if the time is before 09:00 or after 19:00 IST, disable the button (add disabled attribute and a tooltip: "Requests can only be created Monday–Friday, 9 AM–7 PM IST"). Re-check every 60 seconds using setInterval and update the button state.
+
+## 14. ASSET UPLOAD — AUTO REFRESH FILE LIST
+In public/app.js, find the asset upload success handler (App.triggerAssetUpload or the fetch call for POST /api/requests/:id/upload). After a successful upload response, automatically call the function that loads/refreshes the asset file list in the detail panel (_loadAssetFilesIntoPanel or equivalent) without requiring the user to navigate away.
+
+## 15. PENDING APPROVAL BADGE ON DASHBOARD
+(This is already partially covered by item 11 above. Make sure the badge is visible on the main dashboard view, not just in the nav. Add a "Pending Your Approval" card/section to the dashboard that lists request titles, requester names, and status for all items returned by /api/requests/pending-approvals.)
+
+## 16. ACTIVE TEAM FILTER — INCLUDE RECENTLY COMPLETED
+In server.js, the /api/users/active-team or equivalent query filters users who have requests with status not in ('final_approved', 'live'). Change the filter to include any user who has been assigned to a request updated in the last 30 days, regardless of current status. Use: WHERE (r.updated_at > NOW() - INTERVAL '30 days') OR (r.status NOT IN ('final_approved', 'live')).
+
+---
+
+## 17. CSRF PROTECTION
+Install the `csurf` npm package (or implement a simple double-submit cookie pattern manually if csurf has compatibility issues with Express 5). In server.js, apply CSRF middleware to all state-changing routes (POST, PATCH, DELETE) except /api/auth/* and /api/users/import-csv (multipart). Add the CSRF token to the response of GET /api/auth/me or GET /api/load-all as a `csrfToken` field. In public/storage-client.js, store the token and include it as an `X-CSRF-Token` header on all fetch calls that use POST, PATCH, or DELETE methods.
+
+## 18. FILE DOWNLOAD AUTHORIZATION — CAMPAIGN SCOPING
+In server.js, the GET /api/assets/:fileId/download endpoint checks user role/hierarchy but not campaign scope. Add a check: look up the request that owns this file. Look up the campaign that owns that request. If the logged-in user is a 'requester' role, verify they are the request creator OR their department matches the campaign. If neither, return 403.
+
+## 19. SESSION ROTATION AFTER SSO LOGIN
+In server.js, in the Microsoft SSO callback route (/api/auth/microsoft/callback), after successfully authenticating the user and before setting req.session.userId, call req.session.regenerate() to rotate the session ID. Move the session assignment inside the regenerate callback. This prevents session fixation attacks.
+
+## 20. APPROVER ASSIGNMENT CONSENT GUARD
+In server.js, when a requester-role user sets an approver_id, add a server-side log entry to the activity_log table: action = 'approver_assigned', performed_by = req.session.userId, target_user = approver_id, request_id = id. This creates an audit trail. Additionally, do not allow a requester to change the approver after the request has moved past 'intake' status — return 403 if the current status is beyond intake and the requestor is not admin/manager.
+
+---
+
+## 21. PAGINATION ON /api/load-all
+In server.js, the /api/load-all endpoint loads all records at once. Add limit/offset pagination for requests and activity_log. Accept optional query params: ?requests_limit=100&requests_offset=0&activity_limit=50&activity_offset=0. Default limits: requests=200, activity=50. Return pagination metadata in the response: { requests: [...], requests_total: N, activity: [...], activity_total: N, users: [...], campaigns: [...] }. Keep users and campaigns fully loaded (they are small datasets).
+
+## 22. EMAIL INDEX ON USERS TABLE
+In db/migrate.js, add a migration step (using the existing pattern of checking information_schema or using IF NOT EXISTS) that creates an index: CREATE INDEX IF NOT EXISTS users_email_lower_idx ON users (LOWER(email)). This speeds up every login query.
+
+## 23. ENRICH REQUEST — USE MAPS INSTEAD OF ARRAY FIND
+In public/data-service.js — wait, DO NOT modify data-service.js. Instead, in public/storage-client.js, when building the reference lookup structures that are passed to the data layer, convert ASSET_TYPES, USERS, and STATUSES arrays into Maps keyed by id before passing them as window globals. Change:
+  window.USERS = usersArray  →  window.USERS_MAP = new Map(usersArray.map(u => [u.id, u]))
+  window.ASSET_TYPES_MAP = new Map(assetTypes.map(a => [a.id, a]))
+Keep the array versions as well for backward compatibility. Then in app.js, where these Maps would speed up lookups, use USERS_MAP.get(id) instead of USERS.find(u => u.id === id).
+
+## 24. DATABASE CONNECTION POOL LIMITS
+In server.js, find where the pg Pool is initialized. Add explicit configuration: { max: 20, min: 2, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 }. This prevents connection exhaustion under load.
+
+## 25. ASYNC FILE CLEANUP ON UPLOAD ERROR
+In server.js, in the file upload error handler, replace any fs.unlinkSync() calls with fs.unlink() (the async version) with a callback or promisified version. This prevents blocking the Node.js event loop during error cleanup.
+
+## 26. PERSISTENT SESSION STORE
+In server.js, install and configure connect-pg-simple to store sessions in PostgreSQL instead of memory. Use the existing DATABASE_URL / pg pool. This makes sessions survive server restarts and supports future multi-instance deployments. The sessions table will be auto-created by connect-pg-simple. Update the express-session config to use the pg store.
+
+---
+
+## GENERAL RULES
+- All database schema changes must use the existing migration pattern in db/migrate.js (ALTER TABLE IF NOT EXISTS, CREATE INDEX IF NOT EXISTS, etc.)
+- All new API endpoints must have requireAuth middleware
+- All responses must use consistent JSON shape: { data: ... } for success, { error: '...' } for errors
+- Do not change any method signatures in storage-client.js
+- Do not modify data-service.js
+- Test that the app still starts cleanly and /api/load-all returns correctly after all changes
+- npm install any new packages needed (connect-pg-simple, etc.)
