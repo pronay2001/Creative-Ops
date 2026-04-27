@@ -407,8 +407,19 @@ const SupabaseClient = (() => {
     console.warn('[CreativeOps] Reset not supported in API mode. Clear the database directly.');
   }
 
+  async function loadPendingApprovals() {
+    try {
+      const rows = await apiFetch('/api/requests/pending-approvals');
+      return (rows || []).map(requestFromRow);
+    } catch (err) {
+      console.warn('[CreativeOps] Pending approvals fetch failed:', err.message);
+      return [];
+    }
+  }
+
   return {
     loadAll,
+    loadPendingApprovals,
     persist,
     checkAuth,
     login,

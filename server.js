@@ -669,6 +669,41 @@ app.get('/api/requests', async (req, res) => {
   }
 });
 
+// Pending approvals — requests where the current user is the assigned approver
+// AND the request is in an active-approval state. Mounted before /api/requests/:id
+// to ensure the literal path matches first.
+const PENDING_APPROVAL_STATUSES = ['first_cut', 'under_review', 'changes_in_progress'];
+app.get('/api/requests/pending-approvals', async (req, res) => {
+  try {
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const userId = req.session.userId;
+    const result = await pool.query(
+      'SELECT * FROM requests WHERE approver_id = $1 AND status = ANY($2::text[]) ORDER BY internal_deadline NULLS LAST, created_date DESC',
+      [userId, PENDING_APPROVAL_STATUSES]
+    );
+    const reqIds = result.rows.map(r => r.id);
+    let delRows = [];
+    if (reqIds.length) {
+      const dels = await pool.query(
+        'SELECT * FROM deliverables WHERE request_id = ANY($1::text[]) ORDER BY created_at',
+        [reqIds]
+      );
+      delRows = dels.rows;
+    }
+    const delMap = {};
+    delRows.forEach(d => {
+      if (!delMap[d.request_id]) delMap[d.request_id] = [];
+      delMap[d.request_id].push(d);
+    });
+    const rows = result.rows.map(r => ({ ...r, deliverables: delMap[r.id] || [] }));
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/requests', async (req, res) => {
   try {
     const user = await getSessionUser(req);

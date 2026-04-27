@@ -41,6 +41,7 @@ const App = (() => {
   let sortState = { key: null, dir: 'asc' };
   let isDragging = false;
   let dayPopup = null;
+  let pendingApprovals = [];
   let activeDropdown = null;
   let supabaseConfig = { url: '', key: '', status: 'none' };
   let assetUploads = {}; // { requestId: { type: 'image'|'video', dataUrl: '...' } }
@@ -170,6 +171,77 @@ const App = (() => {
   }
 
   /* ── 1. DASHBOARD ──────────────────────────────────────────────────── */
+  let _pendingApprovalsReconcileTimer = null;
+  async function _doPendingApprovalsFetch() {
+    if (!window.__currentUser || !window.SupabaseClient || !window.SupabaseClient.loadPendingApprovals) return;
+    try {
+      pendingApprovals = await window.SupabaseClient.loadPendingApprovals();
+    } catch (e) {
+      pendingApprovals = [];
+    }
+    updatePendingApprovalsBadge();
+    if (currentView === 'dashboard') {
+      const widget = document.getElementById('pendingApprovalsWidget');
+      if (widget) {
+        widget.outerHTML = renderPendingApprovalsWidget();
+        lucide.createIcons();
+      }
+    }
+  }
+
+  // Refresh pending approvals from the server. DataService mutations are
+  // optimistic local-first with async API sync, so a single fetch can race
+  // the PATCH. We schedule an immediate fetch and a short reconciliation
+  // fetch to catch the post-commit state.
+  function refreshPendingApprovals() {
+    _doPendingApprovalsFetch();
+    if (_pendingApprovalsReconcileTimer) clearTimeout(_pendingApprovalsReconcileTimer);
+    _pendingApprovalsReconcileTimer = setTimeout(() => {
+      _pendingApprovalsReconcileTimer = null;
+      _doPendingApprovalsFetch();
+    }, 700);
+  }
+
+  function updatePendingApprovalsBadge() {
+    const badge = document.getElementById('pendingApprovalsBadge');
+    if (!badge) return;
+    const n = pendingApprovals.length;
+    if (n > 0) {
+      badge.textContent = n > 99 ? '99+' : String(n);
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  function renderPendingApprovalsWidget() {
+    if (!pendingApprovals || pendingApprovals.length === 0) {
+      return '<div id="pendingApprovalsWidget" style="display:none"></div>';
+    }
+    const items = pendingApprovals.slice(0, 5).map(r => {
+      const requester = DataService.getUserById(r.createdBy);
+      const requesterName = requester ? requester.name : 'Unknown';
+      return `<div class="widget-list-item" onclick="App.openRequestDetail('${r.id}')">
+        ${priorityDot(r.priority)}
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;overflow:hidden">
+          <span class="widget-list-item-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.title}</span>
+          <span class="text-xs text-faint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">From ${requesterName}</span>
+        </div>
+        ${statusBadge(r.status)}
+      </div>`;
+    }).join('');
+    return `<div id="pendingApprovalsWidget" class="dashboard-widget" style="margin-bottom:var(--space-4);border:1px solid var(--color-error-highlight)">
+      <div class="dashboard-widget-header">
+        <span class="dashboard-widget-title" style="display:flex;align-items:center;gap:var(--space-2)">
+          <i data-lucide="clipboard-check" style="width:14px;height:14px;color:var(--color-error)"></i>
+          Pending Your Approval
+        </span>
+        <span class="text-xs" style="color:var(--color-error);font-weight:600">${pendingApprovals.length} ${pendingApprovals.length === 1 ? 'item' : 'items'}</span>
+      </div>
+      <div class="dashboard-widget-body">${items}</div>
+    </div>`;
+  }
+
   function renderDashboard() {
     const kpi = DataService.getDashboardKPIs();
     const activity = DataService.getRecentActivity(10);
@@ -199,6 +271,8 @@ const App = (() => {
         <h1>Dashboard</h1>
         ${window.Permissions && window.Permissions.canCreateRequest() ? '<button class="btn btn-primary" onclick="App.openNewRequestModal()"><i data-lucide="plus"></i> Quick Create</button>' : ''}
       </div>
+
+      ${renderPendingApprovalsWidget()}
 
       <div class="kpi-grid">
         ${kpiCard('file-text','Active Requests', kpi.totalActive, 'var(--color-primary-highlight)','var(--color-primary)')}
@@ -689,6 +763,7 @@ const App = (() => {
       DataService.addActivity(reqId, (window.__currentUser && window.__currentUser.id) || '', 'status_changed', `Moved to ${STATUSES[stages[idx+1]].label}`);
       openRequestDetail(reqId);
       if (currentView === 'kanban') { renderView('kanban'); }
+      refreshPendingApprovals();
     }
   }
 
@@ -754,6 +829,7 @@ const App = (() => {
     }
     openRequestDetail(reqId);
     renderView(currentView);
+    refreshPendingApprovals();
   }
 
   /* ── 3d. ASSIGN/REASSIGN ────────────────────────────────────────── */
@@ -837,6 +913,7 @@ const App = (() => {
     showToast(`Approver set to ${user ? user.name : userId}`, 'success');
     openRequestDetail(reqId);
     renderView(currentView);
+    refreshPendingApprovals();
   }
 
   /* ── DROPDOWN HELPERS ─────────────────────────────────────────── */
@@ -2036,6 +2113,7 @@ const App = (() => {
             } else {
               DataService.updateRequestStatus(reqId, newStatus);
               DataService.addActivity(reqId, (window.__currentUser && window.__currentUser.id) || '', 'status_changed', `Moved to ${STATUSES[newStatus].label}`);
+              refreshPendingApprovals();
             }
             document.querySelectorAll('.kanban-column-header .kanban-column-count').forEach((cnt) => {
               const body = cnt.closest('.kanban-column').querySelector('.kanban-column-body');
@@ -3780,6 +3858,7 @@ const App = (() => {
       applyCurrentUserToUI();
       showApp();
       init();
+      refreshPendingApprovals();
     } catch (e) {
       console.error('Data load failed:', e);
       window.USERS = window.USERS || [];
