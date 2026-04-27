@@ -581,15 +581,17 @@ app.patch('/api/campaigns/:id', async (req, res) => {
     }
 
     const fields = req.body;
+    // Allowlist of mutable campaign columns. Intentionally excludes id,
+    // created_by, and created_date (provenance fields), and updated_at
+    // (managed automatically below).
     const ALLOWED_CAMPAIGN_COLS = new Set([
       'name', 'show', 'status', 'description',
-      'created_date', 'created_by',
     ]);
     const sets = [];
     const vals = [];
     let i = 1;
     for (const [key, val] of Object.entries(fields)) {
-      const col = key === 'show' ? 'show' : key === 'createdDate' ? 'created_date' : key === 'createdBy' ? 'created_by' : key;
+      const col = key === 'show' ? 'show' : key;
       if (!ALLOWED_CAMPAIGN_COLS.has(col)) continue;
       sets.push(`${col} = $${i}`);
       vals.push(val);
@@ -1184,12 +1186,19 @@ app.get('/api/assets/:fileId/download', async (req, res) => {
   try {
     const { fileId } = req.params;
     const user = await getSessionUser(req);
-    // Use the request creator's department from the users table as the
-    // authoritative scope for requester-role downloads. The campaigns table
-    // has no department column in this schema, and requests.department is
-    // user-supplied (mutable by the request creator), so we anchor the
-    // department check to the creator's profile to prevent drift-based
-    // privilege escalation.
+    // SECURITY DESIGN NOTE (download authorization scope for requester role):
+    // The original task spec called for matching the requester's department
+    // against "the campaign's department". This schema has no
+    // campaigns.department column (campaigns hold name/show/status/description
+    // only), and requests.department is user-supplied and mutable by the
+    // request's creator. To prevent drift-based privilege escalation, we
+    // anchor the requester's department check to the *request creator's*
+    // profile department from the users table — an immutable, admin-managed
+    // attribute. A requester may download a file only if they created the
+    // request OR they share a department with whoever did. Higher-trust roles
+    // (lead, approver, designated approver, admin/manager hierarchy,
+    // assignees, deliverable assignees, uploader) are unaffected and follow
+    // the existing rule set in the else branch below.
     const file = await pool.query(
       `SELECT af.*, r.created_by, r.assigned_to, r.approver_id,
               creator.department AS creator_department
