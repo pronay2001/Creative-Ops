@@ -375,11 +375,12 @@ app.get('/api/auth/microsoft/callback', async (req, res) => {
 
     let userRow = await pool.query('SELECT * FROM users WHERE LOWER(email) = $1', [msEmail]);
 
+    let resolvedUserId;
     if (userRow.rows[0]) {
       if (!userRow.rows[0].is_active) {
         await pool.query('UPDATE users SET is_active = true WHERE id = $1', [userRow.rows[0].id]);
       }
-      req.session.userId = userRow.rows[0].id;
+      resolvedUserId = userRow.rows[0].id;
     } else {
       const id = uuid();
       await pool.query(
@@ -387,10 +388,23 @@ app.get('/api/auth/microsoft/callback', async (req, res) => {
          VALUES ($1, $2, $3, 'requester', true, '{}', 0)`,
         [id, msName, msEmail]
       );
-      req.session.userId = id;
+      resolvedUserId = id;
     }
 
-    res.redirect('/');
+    req.session.regenerate((regenErr) => {
+      if (regenErr) {
+        console.error('[SSO] Session regenerate failed:', regenErr);
+        return res.redirect('/?sso_error=' + encodeURIComponent('Authentication failed. Please try again.'));
+      }
+      req.session.userId = resolvedUserId;
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error('[SSO] Session save failed:', saveErr);
+          return res.redirect('/?sso_error=' + encodeURIComponent('Authentication failed. Please try again.'));
+        }
+        res.redirect('/');
+      });
+    });
   } catch (err) {
     console.error('[SSO] Callback error:', err);
     res.redirect('/?sso_error=' + encodeURIComponent('Authentication failed. Please try again.'));
@@ -567,14 +581,22 @@ app.patch('/api/campaigns/:id', async (req, res) => {
     }
 
     const fields = req.body;
+    const ALLOWED_CAMPAIGN_COLS = new Set([
+      'name', 'show', 'status', 'description',
+      'created_date', 'created_by',
+    ]);
     const sets = [];
     const vals = [];
     let i = 1;
     for (const [key, val] of Object.entries(fields)) {
-      const col = key === 'show' ? 'show' : key === 'createdDate' ? 'created_date' : key;
+      const col = key === 'show' ? 'show' : key === 'createdDate' ? 'created_date' : key === 'createdBy' ? 'created_by' : key;
+      if (!ALLOWED_CAMPAIGN_COLS.has(col)) continue;
       sets.push(`${col} = $${i}`);
       vals.push(val);
       i++;
+    }
+    if (sets.length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
     }
     sets.push(`updated_at = NOW()`);
     vals.push(id);
@@ -663,6 +685,11 @@ app.post('/api/requests', async (req, res) => {
       return res.status(400).json({ error: 'Final Approver is a required field' });
     }
 
+    const approverCheck = await pool.query('SELECT id, hierarchy_level FROM users WHERE id = $1', [approverId]);
+    if (!approverCheck.rows[0] || !['admin', 'manager'].includes(approverCheck.rows[0].hierarchy_level)) {
+      return res.status(400).json({ error: 'Selected approver must be a manager or admin' });
+    }
+
     const teamLead = await resolveTeamLead(assignedTeam);
     if (!teamLead) {
       return res.status(400).json({ error: 'Team lead not found in the system. Please contact admin.' });
@@ -691,6 +718,13 @@ app.post('/api/requests', async (req, res) => {
       `INSERT INTO activity_log (request_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
       [id, req.session.userId, 'created', JSON.stringify({ detail: `Created request: ${title}` })]
     );
+
+    if (approverId) {
+      await pool.query(
+        `INSERT INTO activity_log (request_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
+        [id, req.session.userId, 'approver_assigned', JSON.stringify({ detail: 'Approver assigned on creation', targetUserId: approverId })]
+      );
+    }
 
     const row = result.rows[0];
     const dels = await pool.query('SELECT * FROM deliverables WHERE request_id = $1', [id]);
@@ -766,6 +800,10 @@ app.patch('/api/requests/:id', async (req, res) => {
     if (isApproverChange) {
       if (!isCreator && !isLead && !isHierarchyAdmin) {
         return res.status(403).json({ error: 'Only the request creator or an admin can set the approver' });
+      }
+      const isRequesterRole = user && user.role === 'requester';
+      if (isRequesterRole && oldData.status !== 'intake' && !isHierarchyManager) {
+        return res.status(403).json({ error: 'The approver cannot be changed once the request has moved past intake' });
       }
     }
     const canEditGeneral = isCreator || isLead || isHierarchyAdmin;
@@ -882,6 +920,10 @@ app.patch('/api/requests/:id', async (req, res) => {
     }
 
     if (isApproverChange && fields.approverId && fields.approverId !== oldData.approver_id) {
+      await pool.query(
+        `INSERT INTO activity_log (request_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
+        [id, req.session.userId, 'approver_assigned', JSON.stringify({ detail: 'Approver changed', targetUserId: fields.approverId, previousApproverId: oldData.approver_id || null })]
+      );
       try {
         if (emailService && emailTemplates) {
           const approverRow2 = await pool.query('SELECT * FROM users WHERE id = $1', [fields.approverId]);
@@ -1142,7 +1184,7 @@ app.get('/api/assets/:fileId/download', async (req, res) => {
   try {
     const { fileId } = req.params;
     const user = await getSessionUser(req);
-    const file = await pool.query('SELECT af.*, r.created_by, r.assigned_to FROM asset_files af JOIN requests r ON r.id = af.request_id WHERE af.id = $1', [fileId]);
+    const file = await pool.query('SELECT af.*, r.created_by, r.assigned_to, r.department AS request_department, r.approver_id FROM asset_files af JOIN requests r ON r.id = af.request_id WHERE af.id = $1', [fileId]);
     if (!file.rows[0]) return res.status(404).json({ error: 'File not found' });
 
     const f = file.rows[0];
@@ -1152,14 +1194,19 @@ app.get('/api/assets/:fileId/download', async (req, res) => {
     const isLead = user && LEAD_ROLES.includes(user.role);
     const isApproverRole = user && APPROVER_ROLES.includes(user.role);
     const isHierarchyManager = user && (user.hierarchy_level === 'admin' || user.hierarchy_level === 'manager');
-    const reqApprover = await pool.query('SELECT approver_id FROM requests WHERE id = $1', [f.request_id]);
-    const isDesignatedApprover = user && reqApprover.rows[0] && reqApprover.rows[0].approver_id === user.id;
+    const isDesignatedApprover = user && f.approver_id && f.approver_id === user.id;
     const hasDelAssigned = await pool.query(
       'SELECT 1 FROM deliverables WHERE request_id = $1 AND assigned_to = $2 LIMIT 1', [f.request_id, req.session.userId]
     );
     const isDeliverableAssignee = hasDelAssigned.rows.length > 0;
 
-    if (!isCreator && !isAssignee && !isUploader && !isLead && !isApproverRole && !isHierarchyManager && !isDesignatedApprover && !isDeliverableAssignee) {
+    const isRequesterRole = user && user.role === 'requester';
+    if (isRequesterRole && !isHierarchyManager) {
+      const sameDept = user.department && f.request_department && user.department === f.request_department;
+      if (!isCreator && !sameDept) {
+        return res.status(403).json({ error: 'You do not have permission to download this file' });
+      }
+    } else if (!isCreator && !isAssignee && !isUploader && !isLead && !isApproverRole && !isHierarchyManager && !isDesignatedApprover && !isDeliverableAssignee) {
       return res.status(403).json({ error: 'You do not have permission to download this file' });
     }
 
@@ -1301,6 +1348,9 @@ app.patch('/api/deliverables/:id', async (req, res) => {
       `UPDATE deliverables SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
       vals
     );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Deliverable not found' });
+    }
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
