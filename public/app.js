@@ -228,6 +228,14 @@ const App = (() => {
           <span class="text-xs text-faint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">From ${requesterName}</span>
         </div>
         ${statusBadge(r.status)}
+        <div style="display:flex;gap:var(--space-1);flex-shrink:0" onclick="event.stopPropagation()">
+          <button class="btn btn-sm btn-ghost" title="Approve" onclick="event.stopPropagation();App.handleApproval('${r.id}','approve')">
+            <i data-lucide="check-circle" style="width:14px;height:14px;color:var(--color-success)"></i>
+          </button>
+          <button class="btn btn-sm btn-ghost" title="Request changes" onclick="event.stopPropagation();App.handleApproval('${r.id}','changes')">
+            <i data-lucide="rotate-ccw" style="width:14px;height:14px;color:var(--color-warning)"></i>
+          </button>
+        </div>
       </div>`;
     }).join('');
     return `<div id="pendingApprovalsWidget" class="dashboard-widget" style="margin-bottom:var(--space-4);border:1px solid var(--color-error-highlight)">
