@@ -34,7 +34,13 @@ const assetUpload = multer({
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 20,
+  min: 2,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -1108,7 +1114,7 @@ app.post('/api/requests/:id/upload', assetUpload.single('file'), async (req, res
     const isDeliverableAssignee = hasDeliverableAssigned.rows.length > 0;
 
     if (!isAssignee && !isDeliverableAssignee && !isLead && !isHierarchyAdmin) {
-      fs.unlinkSync(req.file.path);
+      fs.unlink(req.file.path, () => {});
       return res.status(403).json({ error: 'Only the assigned person can upload assets for this request' });
     }
 
@@ -1138,7 +1144,7 @@ app.post('/api/requests/:id/upload', assetUpload.single('file'), async (req, res
       uploadedAt: new Date().toISOString()
     });
   } catch (err) {
-    if (req.file && req.file.path) try { fs.unlinkSync(req.file.path); } catch(e) {}
+    if (req.file && req.file.path) fs.unlink(req.file.path, () => {});
     res.status(500).json({ error: err.message });
   }
 });

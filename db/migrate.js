@@ -258,6 +258,8 @@ CREATE TABLE IF NOT EXISTS timesheet_clock (
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS users_email_lower_idx ON users (LOWER(email));
 `;
 
 const assetTypeMigration = `
