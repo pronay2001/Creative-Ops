@@ -1184,7 +1184,21 @@ app.get('/api/assets/:fileId/download', async (req, res) => {
   try {
     const { fileId } = req.params;
     const user = await getSessionUser(req);
-    const file = await pool.query('SELECT af.*, r.created_by, r.assigned_to, r.department AS request_department, r.approver_id FROM asset_files af JOIN requests r ON r.id = af.request_id WHERE af.id = $1', [fileId]);
+    // Use the request creator's department from the users table as the
+    // authoritative scope for requester-role downloads. The campaigns table
+    // has no department column in this schema, and requests.department is
+    // user-supplied (mutable by the request creator), so we anchor the
+    // department check to the creator's profile to prevent drift-based
+    // privilege escalation.
+    const file = await pool.query(
+      `SELECT af.*, r.created_by, r.assigned_to, r.approver_id,
+              creator.department AS creator_department
+         FROM asset_files af
+         JOIN requests r ON r.id = af.request_id
+         LEFT JOIN users creator ON creator.id = r.created_by
+        WHERE af.id = $1`,
+      [fileId]
+    );
     if (!file.rows[0]) return res.status(404).json({ error: 'File not found' });
 
     const f = file.rows[0];
@@ -1202,7 +1216,7 @@ app.get('/api/assets/:fileId/download', async (req, res) => {
 
     const isRequesterRole = user && user.role === 'requester';
     if (isRequesterRole && !isHierarchyManager) {
-      const sameDept = user.department && f.request_department && user.department === f.request_department;
+      const sameDept = user.department && f.creator_department && user.department === f.creator_department;
       if (!isCreator && !sameDept) {
         return res.status(403).json({ error: 'You do not have permission to download this file' });
       }
