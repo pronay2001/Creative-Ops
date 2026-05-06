@@ -76,6 +76,8 @@ const SupabaseClient = (() => {
       createdDate: c.created_date ? c.created_date.split('T')[0] : '',
       createdBy: c.created_by || '',
       description: c.description || '',
+      campaignType: c.campaign_type || c.campaignType || null,
+      releaseDate: toDateOnly(c.release_date || c.releaseDate),
     };
   }
 

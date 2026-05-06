@@ -77,6 +77,16 @@ public/
 - Static config (platforms, verticals, departments, asset types) comes from seed-data.js (browser-side)
 - Dynamic data (users, campaigns, requests) comes from PostgreSQL via API
 
+### Campaigns
+- **Types**: `show`, `work_material`, `branded_content`. Type + release date selected at creation.
+- **Release date**: required for Show and Branded Content; not allowed for Work Material. Mirrored to `go_live_date` of every auto-generated request.
+- **Auto-generated requests** (created atomically in same transaction as campaign):
+  - Show (4): Teaser → `teaser_first_look`, AV → `announcement_video`, Poster → `poster`, Trailer → `trailer`.
+  - Branded Content (9): Poster, Trailer, Trailer Byte Story (`stories`), Stream Now (`post_4_5_brand`), Stream Now Byte Story (`stories`), Brand Reel 1 (`organic_reel`), Brand Reel 2 (`organic_reel`), Branded Static (`post_4_5_brand`), Celebrity Vignette (`hoichoi_brand_promo`).
+  - Each auto-request needs a per-row Internal Deadline + Team (Graphics/Video/Motion Graphics) chosen by the admin in the modal. Auto-requests get assigned to the team lead, status=`intake`, approver_id=null, vertical/department blank — admin edits later.
+- **Permissions**: Create + Edit + Delete = hierarchy admin only (POST/PATCH/DELETE `/api/campaigns`). Edit affordance hidden via `Permissions.isAdmin()` on detail page.
+- **Server constants**: `CAMPAIGN_TYPES` and `CAMPAIGN_AUTO_REQUEST_PRESETS` in `server.js` are the source of truth for type IDs and preset asset-type mapping. Mirror lists in `public/app.js` (`CAMPAIGN_TYPE_LABELS`, `CAMPAIGN_AUTO_REQUEST_PRESETS`) — keep titles/order in sync.
+
 ### External Integrations
 - **CSV Employee Import**: Upload HR CSV via `POST /api/users/import-csv` (multer + csv-parse). Auto-detects column headers, infers roles from designation, upserts by email. Lead-only.
 - **Microsoft Graph Email**: Notifications via OAuth 2.0 client credentials (`services/email.js`). Sends branded HTML emails (`services/email-templates.js`) on: task assignment (including at creation), status changes, new comments, approval decisions. Requires AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, MAIL_FROM env vars. Fails gracefully when not configured.
@@ -90,6 +100,7 @@ See `.env.example` for full list. Key ones:
 
 ### Database
 PostgreSQL with tables: users, campaigns, requests, deliverables, comments, activity_log, timesheet_entries, timesheet_clock, knowledge_entries, content_schedule, asset_files. Schema auto-migrates on server start.
+- `campaigns.campaign_type` TEXT (`show` | `work_material` | `branded_content`) and `campaigns.release_date` DATE.
 - `requests.vertical` TEXT column stores vertical (hoichoi, SVF, etc.)
 - `timesheet_clock` tracks clock-in/clock-out entries with start/end times, duration, auto-sync to timesheet_entries
 - Asset type ID migration in migrate.js maps old IDs to new taxonomy (e.g. repurpose_reel→scene_cutdown)

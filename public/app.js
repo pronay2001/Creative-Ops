@@ -1287,6 +1287,10 @@ const App = (() => {
       submitNewCampaign();
       return;
     }
+    if (modalTitle === 'Edit Campaign') {
+      submitEditCampaign();
+      return;
+    }
     const title = document.getElementById('reqTitle')?.value;
     const campaignId = document.getElementById('reqCampaign')?.value;
     const goLiveDate = document.getElementById('reqGoLive')?.value;
@@ -1374,59 +1378,232 @@ const App = (() => {
   }
 
   /* ── CAMPAIGN CREATION MODAL ─────────────────────────────────────── */
-  function openNewCampaignModal() {
-    document.getElementById('modalTitle').textContent = 'New Campaign';
-    document.getElementById('modalSubmit').textContent = 'Create Campaign';
-    document.getElementById('modalBody').innerHTML = `
+  const CAMPAIGN_TYPE_LABELS = {
+    show: 'Show',
+    work_material: 'Work Material',
+    branded_content: 'Branded Content',
+  };
+
+  const CAMPAIGN_AUTO_REQUEST_PRESETS = {
+    show: ['Teaser', 'AV', 'Poster', 'Trailer'],
+    branded_content: [
+      'Poster', 'Trailer', 'Trailer Byte Story', 'Stream Now',
+      'Stream Now Byte Story', 'Brand Reel 1', 'Brand Reel 2',
+      'Branded Static', 'Celebrity Vignette',
+    ],
+    work_material: [],
+  };
+
+  function _renderAutoRequestRows(type, existing) {
+    const titles = CAMPAIGN_AUTO_REQUEST_PRESETS[type] || [];
+    if (!titles.length) return '';
+    const teamOptions = Object.entries(TEAM_NAMES).map(([k, v]) =>
+      `<option value="${k}">${v}</option>`).join('');
+    return `
+      <div class="form-group">
+        <label class="form-label">Auto-Generated Requests *</label>
+        <p class="text-xs text-muted" style="margin-bottom:var(--space-2)">
+          Pick a deadline and team for each. All fields are required.
+        </p>
+        <div class="data-table-container">
+          <table class="data-table" style="font-size:var(--font-xs)">
+            <thead><tr><th>Title</th><th>Internal Deadline *</th><th>Requisition To *</th></tr></thead>
+            <tbody>
+              ${titles.map((t, i) => {
+                const ex = (existing && existing[i]) || {};
+                return `<tr>
+                  <td><strong>${t}</strong></td>
+                  <td><input type="date" class="form-input camp-auto-deadline" data-idx="${i}" value="${ex.internalDeadline || ''}"></td>
+                  <td>
+                    <select class="form-select camp-auto-team" data-idx="${i}">
+                      <option value="">Select team…</option>
+                      ${teamOptions.replace(`value="${ex.assignedTeam}"`, `value="${ex.assignedTeam}" selected`)}
+                    </select>
+                  </td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  function _renderCampaignFormFields(values) {
+    const v = values || {};
+    return `
       <div class="form-group">
         <label class="form-label">Name *</label>
-        <input class="form-input" id="campName" placeholder="e.g., Durga Puja 2026 Campaign">
+        <input class="form-input" id="campName" placeholder="e.g., Durga Puja 2026 Campaign" value="${(v.name || '').replace(/"/g, '&quot;')}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Campaign Type *</label>
+        <select class="form-select" id="campType" onchange="App.onCampaignTypeChange()">
+          <option value="">Select type…</option>
+          <option value="show" ${v.campaignType === 'show' ? 'selected' : ''}>Show</option>
+          <option value="work_material" ${v.campaignType === 'work_material' ? 'selected' : ''}>Work Material</option>
+          <option value="branded_content" ${v.campaignType === 'branded_content' ? 'selected' : ''}>Branded Content</option>
+        </select>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Show Name</label>
-          <input class="form-input" id="campShow" placeholder="e.g., Kacher Manush">
+          <input class="form-input" id="campShow" placeholder="e.g., Kacher Manush" value="${(v.show || '').replace(/"/g, '&quot;')}">
         </div>
-        <div class="form-group">
-          <label class="form-label">Season</label>
-          <input class="form-input" id="campSeason" placeholder="e.g., Season 2">
+        <div class="form-group" id="campReleaseDateGroup" style="display:none">
+          <label class="form-label">Release Date *</label>
+          <input class="form-input" type="date" id="campReleaseDate" value="${v.releaseDate || ''}">
         </div>
       </div>
       <div class="form-group">
         <label class="form-label">Description</label>
-        <textarea class="form-textarea" id="campDesc" rows="3" placeholder="Campaign description..."></textarea>
+        <textarea class="form-textarea" id="campDesc" rows="3" placeholder="Campaign description...">${v.description || ''}</textarea>
       </div>
       <div class="form-group">
         <label class="form-label">Status</label>
         <select class="form-select" id="campStatus">
-          <option value="active">Active</option>
-          <option value="on_hold">On Hold</option>
+          <option value="active" ${(v.status || 'active') === 'active' ? 'selected' : ''}>Active</option>
+          <option value="on_hold" ${v.status === 'on_hold' ? 'selected' : ''}>On Hold</option>
+          <option value="completed" ${v.status === 'completed' ? 'selected' : ''}>Completed</option>
+          <option value="archived" ${v.status === 'archived' ? 'selected' : ''}>Archived</option>
         </select>
       </div>
+      <div id="campAutoRequestsContainer"></div>
     `;
+  }
+
+  function openNewCampaignModal() {
+    document.getElementById('modalTitle').textContent = 'New Campaign';
+    document.getElementById('modalSubmit').textContent = 'Create Campaign';
+    document.getElementById('modalBody').innerHTML = _renderCampaignFormFields({});
     document.getElementById('modalOverlay').classList.add('open');
     lucide.createIcons();
   }
 
-  function submitNewCampaign() {
-    const name = document.getElementById('campName')?.value;
-    if (!name) {
-      showToast('Campaign name is required', 'error');
-      return;
+  function onCampaignTypeChange() {
+    const type = document.getElementById('campType')?.value || '';
+    const dateGroup = document.getElementById('campReleaseDateGroup');
+    const autoContainer = document.getElementById('campAutoRequestsContainer');
+    const needsRelease = type === 'show' || type === 'branded_content';
+    if (dateGroup) dateGroup.style.display = needsRelease ? '' : 'none';
+    if (autoContainer) autoContainer.innerHTML = needsRelease ? _renderAutoRequestRows(type) : '';
+  }
+
+  function _collectAutoRequestRows() {
+    const rows = [];
+    const deadlines = document.querySelectorAll('.camp-auto-deadline');
+    const teams = document.querySelectorAll('.camp-auto-team');
+    for (let i = 0; i < deadlines.length; i++) {
+      rows.push({
+        internalDeadline: deadlines[i].value || '',
+        assignedTeam: teams[i] ? teams[i].value : '',
+      });
     }
+    return rows;
+  }
+
+  async function submitNewCampaign() {
+    const name = document.getElementById('campName')?.value?.trim();
+    if (!name) { showToast('Campaign name is required', 'error'); return; }
+    const campaignType = document.getElementById('campType')?.value || '';
+    if (!campaignType) { showToast('Please select a campaign type', 'error'); return; }
     const show = document.getElementById('campShow')?.value || '';
-    const season = document.getElementById('campSeason')?.value || '';
     const description = document.getElementById('campDesc')?.value || '';
     const status = document.getElementById('campStatus')?.value || 'active';
-    DataService.createCampaign({
-      name,
-      show: season ? `${show} ${season}`.trim() : show,
-      description,
-      status,
-    });
-    closeModal();
-    showToast('Campaign created successfully', 'success');
-    renderView(currentView);
+    const releaseDate = document.getElementById('campReleaseDate')?.value || '';
+    const needsRelease = campaignType === 'show' || campaignType === 'branded_content';
+    if (needsRelease && !releaseDate) {
+      showToast('Release date is required for Show and Branded Content', 'error'); return;
+    }
+    let autoRequests = [];
+    if (needsRelease) {
+      autoRequests = _collectAutoRequestRows();
+      const presetCount = (CAMPAIGN_AUTO_REQUEST_PRESETS[campaignType] || []).length;
+      if (autoRequests.length !== presetCount) {
+        showToast('Auto-request rows are incomplete', 'error'); return;
+      }
+      for (let i = 0; i < autoRequests.length; i++) {
+        const r = autoRequests[i];
+        const label = CAMPAIGN_AUTO_REQUEST_PRESETS[campaignType][i];
+        if (!r.internalDeadline) { showToast(`Set a deadline for "${label}"`, 'error'); return; }
+        if (!r.assignedTeam) { showToast(`Select a team for "${label}"`, 'error'); return; }
+      }
+    }
+    const submitBtn = document.getElementById('modalSubmit');
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      const res = await fetch('/api/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, show, description, status, campaignType, releaseDate: needsRelease ? releaseDate : null, autoRequests }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Failed (${res.status})`);
+      }
+      await SupabaseClient.loadAll();
+      closeModal();
+      showToast('Campaign created successfully', 'success');
+      renderView(currentView);
+    } catch (e) {
+      showToast(e.message || 'Failed to create campaign', 'error');
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  }
+
+  function openEditCampaignModal(campaignId) {
+    const campaign = DataService.getCampaignById(campaignId);
+    if (!campaign) return;
+    document.getElementById('modalTitle').textContent = 'Edit Campaign';
+    document.getElementById('modalSubmit').textContent = 'Save Changes';
+    document.getElementById('modalBody').innerHTML = _renderCampaignFormFields(campaign);
+    // Stash id on submit button for the dispatcher to read.
+    document.getElementById('modalSubmit').dataset.editCampaignId = campaignId;
+    document.getElementById('modalOverlay').classList.add('open');
+    onCampaignTypeChange();
+    lucide.createIcons();
+  }
+
+  async function submitEditCampaign() {
+    const submitBtn = document.getElementById('modalSubmit');
+    const campaignId = submitBtn?.dataset.editCampaignId;
+    if (!campaignId) { showToast('Missing campaign id', 'error'); return; }
+    const name = document.getElementById('campName')?.value?.trim();
+    if (!name) { showToast('Campaign name is required', 'error'); return; }
+    const campaignType = document.getElementById('campType')?.value || '';
+    const show = document.getElementById('campShow')?.value || '';
+    const description = document.getElementById('campDesc')?.value || '';
+    const status = document.getElementById('campStatus')?.value || 'active';
+    const releaseDate = document.getElementById('campReleaseDate')?.value || '';
+    const needsRelease = campaignType === 'show' || campaignType === 'branded_content';
+    if (needsRelease && !releaseDate) { showToast('Release date is required for Show and Branded Content', 'error'); return; }
+    const body = {
+      name, show, description, status,
+      campaignType: campaignType || null,
+      releaseDate: needsRelease ? releaseDate : null,
+    };
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const r = await res.json().catch(() => ({}));
+        throw new Error(r.error || `Failed (${res.status})`);
+      }
+      await SupabaseClient.loadAll();
+      delete submitBtn.dataset.editCampaignId;
+      closeModal();
+      showToast('Campaign updated', 'success');
+      renderView(currentView);
+    } catch (e) {
+      showToast(e.message || 'Failed to update campaign', 'error');
+    } finally {
+      submitBtn.disabled = false;
+    }
   }
 
   /* ── 5. CAMPAIGNS ──────────────────────────────────────────────────── */
@@ -1446,11 +1623,14 @@ const App = (() => {
         ${campaigns.map(c => `
           <div class="card" onclick="App.navigate('campaigns/${c.id}')">
             <div class="flex items-center gap-2" style="justify-content:space-between;margin-bottom:var(--space-2)">
-              <span class="badge campaign-status-${c.status}">${statusLabels[c.status] || c.status}</span>
+              <div class="flex items-center gap-2">
+                <span class="badge campaign-status-${c.status}">${statusLabels[c.status] || c.status}</span>
+                ${c.campaignType ? `<span class="badge" style="background:var(--color-surface-3);color:var(--color-text)">${CAMPAIGN_TYPE_LABELS[c.campaignType] || c.campaignType}</span>` : ''}
+              </div>
               <span class="text-xs text-faint font-mono">${formatDate(c.createdDate)}</span>
             </div>
             <div class="card-title">${c.name}</div>
-            <div class="card-meta">${c.show} · ${c.requestCount} requests</div>
+            <div class="card-meta">${c.show ? c.show + ' · ' : ''}${c.requestCount} requests${c.releaseDate ? ' · Release ' + formatDate(c.releaseDate) : ''}</div>
             ${c.description ? `<p class="text-xs text-muted" style="margin-bottom:var(--space-3);line-height:1.4">${c.description.substring(0,100)}${c.description.length > 100 ? '...' : ''}</p>` : ''}
             <div class="card-progress">
               <div class="progress-bar"><div class="progress-fill" style="width:${c.progress}%"></div></div>
@@ -1505,10 +1685,15 @@ const App = (() => {
             <span class="breadcrumb-current">${campaign.name}</span>
           </div>
           <h1>${campaign.name}</h1>
+          <div class="flex gap-2 items-center" style="margin-top:var(--space-2);flex-wrap:wrap">
+            ${campaign.campaignType ? `<span class="badge" style="background:var(--color-surface-3);color:var(--color-text)">${CAMPAIGN_TYPE_LABELS[campaign.campaignType] || campaign.campaignType}</span>` : ''}
+            ${campaign.releaseDate ? `<span class="text-xs text-muted"><i data-lucide="calendar" style="width:12px;height:12px;vertical-align:middle"></i> Release ${formatDate(campaign.releaseDate)}</span>` : ''}
+          </div>
           <p class="text-xs text-muted mt-2">${campaign.description || ''}</p>
         </div>
         <div class="flex gap-2">
           ${window.Permissions && window.Permissions.canCreateRequest() ? `<button class="btn btn-primary" onclick="App.openNewRequestModal('${campaignId}')"><i data-lucide="plus" style="width:16px;height:16px"></i> New Request</button>` : ''}
+          ${window.Permissions && window.Permissions.isAdmin() ? `<button class="btn btn-secondary" onclick="App.openEditCampaignModal('${campaignId}')"><i data-lucide="edit-3" style="width:16px;height:16px"></i> Edit</button>` : ''}
           ${window.Permissions && (window.Permissions.canEditCampaign(campaign) || window.Permissions.isAdmin()) ? `<button class="btn btn-ghost" style="color:var(--color-error)" onclick="App.deleteCampaign('${campaignId}', '${campaign.name.replace(/'/g, "\\'")}')"><i data-lucide="trash-2" style="width:16px;height:16px"></i> Delete</button>` : ''}
         </div>
       </div>
@@ -3918,7 +4103,7 @@ const App = (() => {
     showWorkloadDetail, focusSearch, kanbanCardClick, workloadCardClick,
     uploadVersion, toggleApprovalDropdown, handleApproval,
     toggleAssigneeDropdown, assignToDesigner, toggleApproverDropdown, setApprover, changeHierarchy, changeRole, filterTeamDirectory, showToast,
-    openNewCampaignModal, deleteCampaign,
+    openNewCampaignModal, deleteCampaign, openEditCampaignModal, submitEditCampaign, onCampaignTypeChange,
     filterAssets, clearAssetFilters, triggerAssetUpload, handleAssetFile, setAssetView, viewRequestFiles, downloadAsset,
     openCommandPalette, closeCommandPalette, openSearchResult,
     saveSupabaseConfig, testSupabaseConnection, exportData, importData, handleImportFile, resetData, handleCSVSelect, importCSV, _pickAssignUser,

@@ -554,22 +554,124 @@ app.get('/api/campaigns', async (req, res) => {
   }
 });
 
+// Campaign type → list of preset auto-requests (title + asset_type_id).
+// Deadlines and team are filled in by the creator in the modal; never auto-set.
+const CAMPAIGN_TYPES = ['show', 'work_material', 'branded_content'];
+const CAMPAIGN_AUTO_REQUEST_PRESETS = {
+  show: [
+    { title: 'Teaser',  assetTypeId: 'teaser_first_look' },
+    { title: 'AV',      assetTypeId: 'announcement_video' },
+    { title: 'Poster',  assetTypeId: 'poster' },
+    { title: 'Trailer', assetTypeId: 'trailer' },
+  ],
+  branded_content: [
+    { title: 'Poster',               assetTypeId: 'poster' },
+    { title: 'Trailer',              assetTypeId: 'trailer' },
+    { title: 'Trailer Byte Story',   assetTypeId: 'stories' },
+    { title: 'Stream Now',           assetTypeId: 'post_4_5_brand' },
+    { title: 'Stream Now Byte Story',assetTypeId: 'stories' },
+    { title: 'Brand Reel 1',         assetTypeId: 'organic_reel' },
+    { title: 'Brand Reel 2',         assetTypeId: 'organic_reel' },
+    { title: 'Branded Static',       assetTypeId: 'post_4_5_brand' },
+    { title: 'Celebrity Vignette',   assetTypeId: 'hoichoi_brand_promo' },
+  ],
+  work_material: [],
+};
+
 app.post('/api/campaigns', async (req, res) => {
+  const client = await pool.connect();
   try {
     const user = await getSessionUser(req);
     if (!user || user.hierarchy_level !== 'admin') {
       return res.status(403).json({ error: 'Only admins can create campaigns' });
     }
-    const { name, show, status, description } = req.body;
+    const { name, show, status, description, campaignType, releaseDate, autoRequests } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Campaign name is required' });
+    }
+
+    let type = campaignType || null;
+    if (type && !CAMPAIGN_TYPES.includes(type)) {
+      return res.status(400).json({ error: `Invalid campaign type. Must be one of: ${CAMPAIGN_TYPES.join(', ')}` });
+    }
+
+    const needsReleaseDate = type === 'show' || type === 'branded_content';
+    if (needsReleaseDate && !releaseDate) {
+      return res.status(400).json({ error: 'Release date is required for Show and Branded Content campaigns' });
+    }
+    if (type === 'work_material' && releaseDate) {
+      return res.status(400).json({ error: 'Release date does not apply to Work Material campaigns' });
+    }
+
+    // Validate auto-request rows for show/branded_content. Each preset row must
+    // have an internalDeadline and assignedTeam supplied by the creator.
+    let presets = [];
+    let validatedRows = [];
+    if (needsReleaseDate) {
+      presets = CAMPAIGN_AUTO_REQUEST_PRESETS[type] || [];
+      const incoming = Array.isArray(autoRequests) ? autoRequests : [];
+      if (incoming.length !== presets.length) {
+        return res.status(400).json({ error: `Expected ${presets.length} auto-request rows for ${type}, got ${incoming.length}` });
+      }
+      for (let i = 0; i < presets.length; i++) {
+        const row = incoming[i] || {};
+        if (!row.internalDeadline) {
+          return res.status(400).json({ error: `Internal deadline is required for "${presets[i].title}"` });
+        }
+        if (!row.assignedTeam || !TEAM_LEADS[row.assignedTeam]) {
+          return res.status(400).json({ error: `A valid team must be selected for "${presets[i].title}"` });
+        }
+        validatedRows.push({
+          title: presets[i].title,
+          assetTypeId: presets[i].assetTypeId,
+          internalDeadline: row.internalDeadline,
+          assignedTeam: row.assignedTeam,
+        });
+      }
+    }
+
+    // Resolve team leads up-front so a missing user fails before any insert.
+    const leadByTeam = {};
+    for (const row of validatedRows) {
+      if (!leadByTeam[row.assignedTeam]) {
+        const lead = await resolveTeamLead(row.assignedTeam);
+        if (!lead) {
+          return res.status(400).json({ error: `Team lead not found for ${row.assignedTeam}. Please contact admin.` });
+        }
+        leadByTeam[row.assignedTeam] = lead;
+      }
+    }
+
+    await client.query('BEGIN');
     const id = uuid();
-    const result = await pool.query(
-      `INSERT INTO campaigns (id, name, show, status, description, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [id, name, show || '', status || 'active', description || '', req.session.userId]
+    const campaignResult = await client.query(
+      `INSERT INTO campaigns (id, name, show, status, description, created_by, campaign_type, release_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [id, name, show || '', status || 'active', description || '', req.session.userId, type, needsReleaseDate ? releaseDate : null]
     );
-    res.json(result.rows[0]);
+
+    for (const row of validatedRows) {
+      const reqId = uuid();
+      const lead = leadByTeam[row.assignedTeam];
+      await client.query(
+        `INSERT INTO requests (id, title, campaign_id, asset_type_id, department, platforms, assigned_to, status, priority, go_live_date, internal_deadline, brief, created_by, vertical, is_expedited, approver_id, assigned_team)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'intake', $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+        [reqId, row.title, id, row.assetTypeId, '', [], lead.id, 'medium', releaseDate, row.internalDeadline, JSON.stringify({}), req.session.userId, '', false, null, row.assignedTeam]
+      );
+      await client.query(
+        `INSERT INTO activity_log (request_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
+        [reqId, req.session.userId, 'created', JSON.stringify({ detail: `Auto-created from campaign: ${name}` })]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json(campaignResult.rows[0]);
   } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    console.error('[campaigns:create]', err.message);
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -580,10 +682,8 @@ app.patch('/api/campaigns/:id', async (req, res) => {
     const campaign = await pool.query('SELECT * FROM campaigns WHERE id = $1', [id]);
     if (!campaign.rows[0]) return res.status(404).json({ error: 'Campaign not found' });
 
-    const isCreator = campaign.rows[0].created_by === req.session.userId;
-    const isLead = user && LEAD_ROLES.includes(user.role);
-    if (!isCreator && !isLead) {
-      return res.status(403).json({ error: 'You can only edit campaigns you created' });
+    if (!user || user.hierarchy_level !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can edit campaigns' });
     }
 
     const fields = req.body;
@@ -591,16 +691,39 @@ app.patch('/api/campaigns/:id', async (req, res) => {
     // created_by, and created_date (provenance fields), and updated_at
     // (managed automatically below).
     const ALLOWED_CAMPAIGN_COLS = new Set([
-      'name', 'show', 'status', 'description',
+      'name', 'show', 'status', 'description', 'campaign_type', 'release_date',
     ]);
+    // Map camelCase keys from the client to snake_case column names.
+    const KEY_TO_COL = {
+      campaignType: 'campaign_type',
+      releaseDate: 'release_date',
+    };
+    if (fields.campaign_type !== undefined && !CAMPAIGN_TYPES.includes(fields.campaign_type)) {
+      return res.status(400).json({ error: `Invalid campaign type. Must be one of: ${CAMPAIGN_TYPES.join(', ')}` });
+    }
+    if (fields.campaignType !== undefined && !CAMPAIGN_TYPES.includes(fields.campaignType)) {
+      return res.status(400).json({ error: `Invalid campaign type. Must be one of: ${CAMPAIGN_TYPES.join(', ')}` });
+    }
+    // Enforce release_date consistency when campaign type is being touched.
+    const incomingType = fields.campaign_type !== undefined ? fields.campaign_type : fields.campaignType;
+    if (incomingType !== undefined) {
+      const incomingRelease = fields.release_date !== undefined ? fields.release_date : fields.releaseDate;
+      const effectiveRelease = incomingRelease !== undefined ? incomingRelease : campaign.rows[0].release_date;
+      if ((incomingType === 'show' || incomingType === 'branded_content') && !effectiveRelease) {
+        return res.status(400).json({ error: 'Release date is required for Show and Branded Content campaigns' });
+      }
+      if (incomingType === 'work_material' && effectiveRelease) {
+        return res.status(400).json({ error: 'Release date does not apply to Work Material campaigns' });
+      }
+    }
     const sets = [];
     const vals = [];
     let i = 1;
     for (const [key, val] of Object.entries(fields)) {
-      const col = key === 'show' ? 'show' : key;
+      const col = KEY_TO_COL[key] || key;
       if (!ALLOWED_CAMPAIGN_COLS.has(col)) continue;
       sets.push(`${col} = $${i}`);
-      vals.push(val);
+      vals.push(val === '' && col === 'release_date' ? null : val);
       i++;
     }
     if (sets.length === 0) {
