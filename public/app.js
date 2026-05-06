@@ -202,6 +202,50 @@ const App = (() => {
     }, 700);
   }
 
+  // Background polling so the badge/widget pick up changes made by other
+  // users (new requests assigned to me, status advances to first cut,
+  // approver reassigned to/away from me) without a manual reload.
+  // Polling pauses when the tab is hidden and resumes (with an immediate
+  // fetch) when it becomes visible/focused again.
+  const PENDING_APPROVALS_POLL_MS = 30000;
+  let _pendingApprovalsPollTimer = null;
+  let _pendingApprovalsAutoRefreshStarted = false;
+
+  function _stopPendingApprovalsPolling() {
+    if (_pendingApprovalsPollTimer) {
+      clearInterval(_pendingApprovalsPollTimer);
+      _pendingApprovalsPollTimer = null;
+    }
+  }
+
+  function _startPendingApprovalsPolling() {
+    _stopPendingApprovalsPolling();
+    if (typeof document !== 'undefined' && document.hidden) return;
+    _pendingApprovalsPollTimer = setInterval(_doPendingApprovalsFetch, PENDING_APPROVALS_POLL_MS);
+  }
+
+  function startPendingApprovalsAutoRefresh() {
+    if (_pendingApprovalsAutoRefreshStarted) {
+      _startPendingApprovalsPolling();
+      return;
+    }
+    _pendingApprovalsAutoRefreshStarted = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        _stopPendingApprovalsPolling();
+      } else {
+        _doPendingApprovalsFetch();
+        _startPendingApprovalsPolling();
+      }
+    });
+    window.addEventListener('focus', () => {
+      if (document.hidden) return;
+      _doPendingApprovalsFetch();
+      _startPendingApprovalsPolling();
+    });
+    _startPendingApprovalsPolling();
+  }
+
   function updatePendingApprovalsBadge() {
     const badge = document.getElementById('pendingApprovalsBadge');
     if (!badge) return;
@@ -4277,6 +4321,7 @@ const App = (() => {
       showApp();
       init();
       refreshPendingApprovals();
+      startPendingApprovalsAutoRefresh();
     } catch (e) {
       console.error('Data load failed:', e);
       window.USERS = window.USERS || [];
