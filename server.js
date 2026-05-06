@@ -68,11 +68,67 @@ try {
   emailTemplates = require('./services/email-templates');
 } catch (e) { /* ok */ }
 
-function fireEmail(to, subject, html) {
-  if (!emailService || !emailService.sendMail) return;
-  emailService.sendMail(to, subject, html).catch(err => {
-    console.error('[email] Notification failed:', err.message);
-  });
+let teamsService = null;
+try {
+  teamsService = require('./services/teams');
+} catch (e) { /* ok */ }
+
+function getRequestUrl(requestId) {
+  if (!requestId) return null;
+  const base = process.env.APP_BASE_URL
+    || process.env.APP_URL
+    || (process.env.REPLIT_DEPLOYMENT && process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : null)
+    || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null)
+    || `http://localhost:${PORT}`;
+  return `${String(base).replace(/\/$/, '')}/#requests/${requestId}`;
+}
+
+function appendDeepLinkCta(html, url) {
+  if (!url || !html) return html;
+  const cta = `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:16px 0 0;"><tr><td align="center" style="padding:0;"><a href="${url}" style="display:inline-block;padding:12px 28px;background:linear-gradient(-60deg,#d20820,#6d0550);color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:600;text-decoration:none;border-radius:10px;">Open in CreativeOps →</a></td></tr></table>`;
+  // Insert just before the footer row (works with services/email-templates.js layout()).
+  const footerMarker = '<tr><td style="padding:16px 32px;background-color:#111111;text-align:center;">';
+  if (html.includes(footerMarker)) {
+    return html.replace(footerMarker, `<tr><td style="padding:0 32px 16px;">${cta}</td></tr>${footerMarker}`);
+  }
+  return html + cta;
+}
+
+// Fan-out a notification to BOTH email and Microsoft Teams DM.
+// `requestId` (optional) appends a deep link CTA to the HTML body.
+function notify(to, subject, html, requestId) {
+  const finalHtml = appendDeepLinkCta(html, getRequestUrl(requestId));
+
+  // Email — preserves prior behaviour (fire-and-forget, never throws).
+  if (emailService && emailService.sendMail) {
+    emailService.sendMail(to, subject, finalHtml).catch(err => {
+      console.error('[email] Notification failed:', err.message);
+    });
+  }
+
+  // Teams — concurrent, per-recipient, never blocks email.
+  if (teamsService && teamsService.sendChatMessage && teamsService.isConfigured()) {
+    const recipients = (Array.isArray(to) ? to : [to])
+      .map(r => (typeof r === 'string' ? r : r && r.address))
+      .filter(Boolean);
+    if (recipients.length) {
+      Promise.allSettled(recipients.map(email =>
+        teamsService.sendChatMessage({ recipientEmail: email, htmlBody: finalHtml, subject })
+      )).then(results => {
+        results.forEach((r, idx) => {
+          if (r.status === 'rejected') {
+            console.error(`[teams] DM to ${recipients[idx]} failed:`, r.reason && r.reason.message);
+          }
+        });
+      });
+    }
+  }
+}
+
+// Back-compat alias — older call sites still use fireEmail; route through notify
+// so they get Teams fan-out automatically. New call sites should pass requestId.
+function fireEmail(to, subject, html, requestId) {
+  notify(to, subject, html, requestId);
 }
 
 // ── Auth helpers ──────────────────────────────────────
@@ -916,7 +972,8 @@ app.post('/api/requests', async (req, res) => {
             fireEmail(
               [{ address: assignee.rows[0].email, name: assignee.rows[0].name }],
               `[CreativeOps] New task assigned: ${title}`,
-              html
+              html,
+              id
             );
           }
         }
@@ -927,7 +984,8 @@ app.post('/api/requests', async (req, res) => {
             fireEmail(
               [{ address: approver.rows[0].email, name: approver.rows[0].name }],
               `[CreativeOps] You're the approver for: ${title}`,
-              html
+              html,
+              id
             );
           }
         }
@@ -1078,7 +1136,7 @@ app.patch('/api/requests/:id', async (req, res) => {
           if (recipients.length) {
             const enrichedUpd = await enrichRequestForEmail(updated);
             const html = emailTemplates.finalApproved(enrichedUpd);
-            fireEmail(recipients, `[CreativeOps] Final approved: ${updated.title}`, html);
+            fireEmail(recipients, `[CreativeOps] Final approved: ${updated.title}`, html, id);
           }
         }
       }
@@ -1099,7 +1157,8 @@ app.patch('/api/requests/:id', async (req, res) => {
             fireEmail(
               [{ address: assigneeRow.rows[0].email, name: assigneeRow.rows[0].name }],
               `[CreativeOps] New task assigned: ${updated.title}`,
-              html
+              html,
+              id
             );
           }
         } catch (emailErr) {
@@ -1122,7 +1181,8 @@ app.patch('/api/requests/:id', async (req, res) => {
             fireEmail(
               [{ address: approverRow2.rows[0].email, name: approverRow2.rows[0].name }],
               `[CreativeOps] You're the approver for: ${updated.title}`,
-              html
+              html,
+              id
             );
           }
         }
@@ -1133,6 +1193,29 @@ app.patch('/api/requests/:id', async (req, res) => {
 
     res.json(updated);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Diagnostic: Microsoft Teams DM smoke test (admin only) ─────────────
+app.post('/api/diagnostics/teams-test', async (req, res) => {
+  try {
+    const user = await getSessionUser(req);
+    if (!user || user.hierarchy_level !== 'admin') {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    if (!teamsService || !teamsService.isConfigured()) {
+      return res.status(503).json({ error: 'Microsoft Teams notifications are not configured. Check AZURE_* and MAIL_FROM (or TEAMS_BOT_USER_ID) env vars.' });
+    }
+    const html = `<p>This is a test message from <strong>CreativeOps</strong>. If you can see this in Teams, the integration is wired up correctly.</p>`;
+    await teamsService.sendChatMessage({
+      recipientEmail: user.email,
+      htmlBody: html,
+      subject: '[CreativeOps] Teams test message',
+    });
+    res.json({ success: true, sentTo: user.email });
+  } catch (err) {
+    console.error('[diagnostics/teams-test]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1201,7 +1284,8 @@ app.post('/api/requests/:id/assign', async (req, res) => {
           fireEmail(
             [{ address: assigneeUser.rows[0].email, name: assigneeUser.rows[0].name }],
             `[CreativeOps] New task assigned: ${updated.title}`,
-            html
+            html,
+            id
           );
         }
 
@@ -1212,7 +1296,8 @@ app.post('/api/requests/:id/assign', async (req, res) => {
             fireEmail(
               [{ address: creator.rows[0].email, name: creator.rows[0].name }],
               `[CreativeOps] ${assigneeName} has been assigned to: ${updated.title}`,
-              html
+              html,
+              id
             );
           }
         }
@@ -1267,7 +1352,7 @@ app.post('/api/requests/:id/status', async (req, res) => {
         if (recipients.length) {
           const enrichedReq = await enrichRequestForEmail(request);
           const html = emailTemplates.finalApproved(enrichedReq);
-          fireEmail(recipients, `[CreativeOps] Final approved: ${request.title}`, html);
+          fireEmail(recipients, `[CreativeOps] Final approved: ${request.title}`, html, id);
         }
       }
     }
@@ -1477,7 +1562,7 @@ app.post('/api/requests/:id/comments', async (req, res) => {
         const recipients = users.rows.map(u => ({ address: u.email, name: u.name }));
         const enrichedCmt = await enrichRequestForEmail(request.rows[0]);
         const html = emailTemplates.newComment(enrichedCmt, commenter.rows[0], text);
-        fireEmail(recipients, `[CreativeOps] New comment on: ${request.rows[0].title}`, html);
+        fireEmail(recipients, `[CreativeOps] New comment on: ${request.rows[0].title}`, html, id);
       }
     }
   } catch (err) {
@@ -1593,7 +1678,8 @@ app.post('/api/deliverables/:id/assign', async (req, res) => {
         fireEmail(
           [{ address: assignee.rows[0].email, name: assignee.rows[0].name }],
           `[CreativeOps] New task assigned: ${request.rows[0].title}`,
-          html
+          html,
+          del.request_id
         );
       }
     }

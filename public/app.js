@@ -123,6 +123,10 @@ const App = (() => {
     updateTopbarTitle(view);
     renderView(view, rest.join('/'));
     closeMobileSidebar();
+    // Deep link: requests/<id> opens the detail panel (used by email/Teams CTAs).
+    if (view === 'requests' && rest[0]) {
+      setTimeout(() => { try { openRequestDetail(rest[0]); } catch (_) {} }, 0);
+    }
   }
 
   function updateActiveNav(view) {

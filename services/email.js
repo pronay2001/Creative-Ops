@@ -104,4 +104,4 @@ async function sendMail(recipients, subject, htmlBody) {
   });
 }
 
-module.exports = { sendMail, isConfigured };
+module.exports = { sendMail, isConfigured, getToken };
