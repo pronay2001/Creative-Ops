@@ -1494,8 +1494,11 @@ const App = (() => {
     const dateGroup = document.getElementById('campReleaseDateGroup');
     const autoContainer = document.getElementById('campAutoRequestsContainer');
     const needsRelease = type === 'show' || type === 'branded_content';
+    // Auto-request rows only apply at creation. Editing an existing campaign
+    // never re-creates requests — admins use the inline row editor on detail.
+    const isCreate = document.getElementById('modalTitle')?.textContent === 'New Campaign';
     if (dateGroup) dateGroup.style.display = needsRelease ? '' : 'none';
-    if (autoContainer) autoContainer.innerHTML = needsRelease ? _renderAutoRequestRows(type) : '';
+    if (autoContainer) autoContainer.innerHTML = (needsRelease && isCreate) ? _renderAutoRequestRows(type) : '';
     _updateCampaignSubmitState();
   }
 
@@ -1512,7 +1515,9 @@ const App = (() => {
     const needsRelease = type === 'show' || type === 'branded_content';
     const releaseDate = document.getElementById('campReleaseDate')?.value || '';
     let valid = !!name && !!type && (!needsRelease || !!releaseDate);
-    if (valid && needsRelease) {
+    // Auto-request row validation applies only at creation; editing skips it.
+    const isCreate = title === 'New Campaign';
+    if (valid && needsRelease && isCreate) {
       const deadlines = document.querySelectorAll('.camp-auto-deadline');
       const teams = document.querySelectorAll('.camp-auto-team');
       const presetCount = (CAMPAIGN_AUTO_REQUEST_PRESETS[type] || []).length;
