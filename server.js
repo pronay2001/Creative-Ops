@@ -710,15 +710,18 @@ app.patch('/api/campaigns/:id', async (req, res) => {
     if (fields.campaignType !== undefined && !CAMPAIGN_TYPES.includes(fields.campaignType)) {
       return res.status(400).json({ error: `Invalid campaign type. Must be one of: ${CAMPAIGN_TYPES.join(', ')}` });
     }
-    // Enforce release_date consistency when campaign type is being touched.
+    // Enforce release_date consistency when either campaign_type OR
+    // release_date is being touched. Effective values fall back to the
+    // current row so partial PATCHes are validated against the merged state.
     const incomingType = fields.campaign_type !== undefined ? fields.campaign_type : fields.campaignType;
-    if (incomingType !== undefined) {
-      const incomingRelease = fields.release_date !== undefined ? fields.release_date : fields.releaseDate;
+    const incomingRelease = fields.release_date !== undefined ? fields.release_date : fields.releaseDate;
+    if (incomingType !== undefined || incomingRelease !== undefined) {
+      const effectiveType = incomingType !== undefined ? incomingType : campaign.rows[0].campaign_type;
       const effectiveRelease = incomingRelease !== undefined ? incomingRelease : campaign.rows[0].release_date;
-      if ((incomingType === 'show' || incomingType === 'branded_content') && !effectiveRelease) {
+      if ((effectiveType === 'show' || effectiveType === 'branded_content') && !effectiveRelease) {
         return res.status(400).json({ error: 'Release date is required for Show and Branded Content campaigns' });
       }
-      if (incomingType === 'work_material' && effectiveRelease) {
+      if (effectiveType === 'work_material' && effectiveRelease) {
         return res.status(400).json({ error: 'Release date does not apply to Work Material campaigns' });
       }
     }
@@ -982,6 +985,20 @@ app.patch('/api/requests/:id', async (req, res) => {
     if (!isStatusChange && !isAssignmentChange && !isApproverChange) {
       if (!canEditGeneral) {
         return res.status(403).json({ error: 'You can only edit requests you created' });
+      }
+    }
+
+    // Campaign-linked auto-generated requests: only hierarchy admins may
+    // change title/internal_deadline/assigned_team. The request belongs to
+    // a typed campaign (campaign_type IS NOT NULL) -> treat as auto-generated.
+    if (oldData.campaign_id) {
+      const PROTECTED_AUTO_FIELDS = ['title', 'internalDeadline', 'internal_deadline', 'assignedTeam', 'assigned_team'];
+      const touchesProtected = PROTECTED_AUTO_FIELDS.some(k => fields[k] !== undefined);
+      if (touchesProtected) {
+        const camp = await pool.query('SELECT campaign_type FROM campaigns WHERE id = $1', [oldData.campaign_id]);
+        if (camp.rows[0] && camp.rows[0].campaign_type && !isHierarchyAdmin) {
+          return res.status(403).json({ error: 'Only hierarchy admins can edit title, internal deadline, or team for campaign-linked requests' });
+        }
       }
     }
 
