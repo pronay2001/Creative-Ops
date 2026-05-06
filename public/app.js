@@ -37,6 +37,38 @@ const App = (() => {
   let calendarShowMine = true;
   let calendarVerticalFilter = '';
   let calendarTeamFilter = '';
+  let calendarFiltersLoadedFor = null;
+
+  function _calendarFiltersStorageKey() {
+    const uid = (window.__currentUser && window.__currentUser.id) || 'anon';
+    return 'creativeops:calendarFilters:' + uid;
+  }
+  function _loadCalendarFiltersFromStorage() {
+    const key = _calendarFiltersStorageKey();
+    if (calendarFiltersLoadedFor === key) return;
+    calendarFiltersLoadedFor = key;
+    calendarVerticalFilter = '';
+    calendarTeamFilter = '';
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        if (typeof parsed.vertical === 'string') calendarVerticalFilter = parsed.vertical;
+        if (typeof parsed.team === 'string') calendarTeamFilter = parsed.team;
+      }
+    } catch (e) { /* ignore */ }
+  }
+  function _persistCalendarFilters() {
+    try {
+      const key = _calendarFiltersStorageKey();
+      if (!calendarVerticalFilter && !calendarTeamFilter) {
+        localStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, JSON.stringify({ vertical: calendarVerticalFilter, team: calendarTeamFilter }));
+      }
+    } catch (e) { /* ignore */ }
+  }
   let currentFilters = {};
   let assetFilters = {};
   let assetViewMode = 'grid';
@@ -2207,6 +2239,7 @@ const App = (() => {
   }
 
   function renderCalendar() {
+    _loadCalendarFiltersFromStorage();
     const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
     const currentUserId = window.__currentUser ? window.__currentUser.id : null;
@@ -2458,23 +2491,27 @@ const App = (() => {
 
   function setCalendarVerticalFilter(v) {
     calendarVerticalFilter = v || '';
+    _persistCalendarFilters();
     _rerenderCalendar();
   }
 
   function setCalendarTeamFilter(t) {
     calendarTeamFilter = t || '';
+    _persistCalendarFilters();
     _rerenderCalendar();
   }
 
   function clearCalendarFilter(which) {
     if (which === 'vertical') calendarVerticalFilter = '';
     else if (which === 'team') calendarTeamFilter = '';
+    _persistCalendarFilters();
     _rerenderCalendar();
   }
 
   function clearCalendarFilters() {
     calendarVerticalFilter = '';
     calendarTeamFilter = '';
+    _persistCalendarFilters();
     _rerenderCalendar();
   }
 
