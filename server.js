@@ -557,6 +557,9 @@ app.get('/api/campaigns', async (req, res) => {
 // Campaign type → list of preset auto-requests (title + asset_type_id).
 // Deadlines and team are filled in by the creator in the modal; never auto-set.
 const CAMPAIGN_TYPES = ['show', 'work_material', 'branded_content'];
+// Team choices allowed on auto-generated campaign requests. Logline is excluded
+// per spec — only Video, Graphics, Motion Graphics teams may be assigned.
+const CAMPAIGN_AUTO_REQUEST_TEAMS = ['video', 'graphics', 'motion_graphics'];
 const CAMPAIGN_AUTO_REQUEST_PRESETS = {
   show: [
     { title: 'Teaser',  assetTypeId: 'teaser_first_look' },
@@ -590,8 +593,11 @@ app.post('/api/campaigns', async (req, res) => {
       return res.status(400).json({ error: 'Campaign name is required' });
     }
 
-    let type = campaignType || null;
-    if (type && !CAMPAIGN_TYPES.includes(type)) {
+    if (!campaignType) {
+      return res.status(400).json({ error: 'Campaign type is required' });
+    }
+    const type = campaignType;
+    if (!CAMPAIGN_TYPES.includes(type)) {
       return res.status(400).json({ error: `Invalid campaign type. Must be one of: ${CAMPAIGN_TYPES.join(', ')}` });
     }
 
@@ -618,8 +624,8 @@ app.post('/api/campaigns', async (req, res) => {
         if (!row.internalDeadline) {
           return res.status(400).json({ error: `Internal deadline is required for "${presets[i].title}"` });
         }
-        if (!row.assignedTeam || !TEAM_LEADS[row.assignedTeam]) {
-          return res.status(400).json({ error: `A valid team must be selected for "${presets[i].title}"` });
+        if (!row.assignedTeam || !CAMPAIGN_AUTO_REQUEST_TEAMS.includes(row.assignedTeam)) {
+          return res.status(400).json({ error: `Team for "${presets[i].title}" must be one of: ${CAMPAIGN_AUTO_REQUEST_TEAMS.join(', ')}` });
         }
         validatedRows.push({
           title: presets[i].title,

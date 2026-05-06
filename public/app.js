@@ -1291,6 +1291,10 @@ const App = (() => {
       submitEditCampaign();
       return;
     }
+    if (modalTitle === 'Edit Campaign Request') {
+      submitEditCampaignRequest();
+      return;
+    }
     const title = document.getElementById('reqTitle')?.value;
     const campaignId = document.getElementById('reqCampaign')?.value;
     const goLiveDate = document.getElementById('reqGoLive')?.value;
@@ -1394,11 +1398,15 @@ const App = (() => {
     work_material: [],
   };
 
+  // Logline is intentionally excluded — only Video / Graphics / Motion Graphics
+  // teams can be assigned to auto-generated campaign requests.
+  const CAMPAIGN_AUTO_REQUEST_TEAM_KEYS = ['video', 'graphics', 'motion_graphics'];
+
   function _renderAutoRequestRows(type, existing) {
     const titles = CAMPAIGN_AUTO_REQUEST_PRESETS[type] || [];
     if (!titles.length) return '';
-    const teamOptions = Object.entries(TEAM_NAMES).map(([k, v]) =>
-      `<option value="${k}">${v}</option>`).join('');
+    const teamOptionsFor = (selected) => CAMPAIGN_AUTO_REQUEST_TEAM_KEYS.map(k =>
+      `<option value="${k}" ${selected === k ? 'selected' : ''}>${TEAM_NAMES[k]}</option>`).join('');
     return `
       <div class="form-group">
         <label class="form-label">Auto-Generated Requests *</label>
@@ -1413,11 +1421,11 @@ const App = (() => {
                 const ex = (existing && existing[i]) || {};
                 return `<tr>
                   <td><strong>${t}</strong></td>
-                  <td><input type="date" class="form-input camp-auto-deadline" data-idx="${i}" value="${ex.internalDeadline || ''}"></td>
+                  <td><input type="date" class="form-input camp-auto-deadline" data-idx="${i}" value="${ex.internalDeadline || ''}" oninput="App._updateCampaignSubmitState()" onchange="App._updateCampaignSubmitState()"></td>
                   <td>
-                    <select class="form-select camp-auto-team" data-idx="${i}">
+                    <select class="form-select camp-auto-team" data-idx="${i}" onchange="App._updateCampaignSubmitState()">
                       <option value="">Select team…</option>
-                      ${teamOptions.replace(`value="${ex.assignedTeam}"`, `value="${ex.assignedTeam}" selected`)}
+                      ${teamOptionsFor(ex.assignedTeam)}
                     </select>
                   </td>
                 </tr>`;
@@ -1434,7 +1442,7 @@ const App = (() => {
     return `
       <div class="form-group">
         <label class="form-label">Name *</label>
-        <input class="form-input" id="campName" placeholder="e.g., Durga Puja 2026 Campaign" value="${(v.name || '').replace(/"/g, '&quot;')}">
+        <input class="form-input" id="campName" placeholder="e.g., Durga Puja 2026 Campaign" value="${(v.name || '').replace(/"/g, '&quot;')}" oninput="App._updateCampaignSubmitState()">
       </div>
       <div class="form-group">
         <label class="form-label">Campaign Type *</label>
@@ -1444,7 +1452,7 @@ const App = (() => {
           <option value="work_material" ${v.campaignType === 'work_material' ? 'selected' : ''}>Work Material</option>
           <option value="branded_content" ${v.campaignType === 'branded_content' ? 'selected' : ''}>Branded Content</option>
         </select>
-      </div>
+      </div>` + `
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Show Name</label>
@@ -1452,7 +1460,7 @@ const App = (() => {
         </div>
         <div class="form-group" id="campReleaseDateGroup" style="display:none">
           <label class="form-label">Release Date *</label>
-          <input class="form-input" type="date" id="campReleaseDate" value="${v.releaseDate || ''}">
+          <input class="form-input" type="date" id="campReleaseDate" value="${v.releaseDate || ''}" oninput="App._updateCampaignSubmitState()" onchange="App._updateCampaignSubmitState()">
         </div>
       </div>
       <div class="form-group">
@@ -1478,6 +1486,7 @@ const App = (() => {
     document.getElementById('modalBody').innerHTML = _renderCampaignFormFields({});
     document.getElementById('modalOverlay').classList.add('open');
     lucide.createIcons();
+    _updateCampaignSubmitState();
   }
 
   function onCampaignTypeChange() {
@@ -1487,6 +1496,35 @@ const App = (() => {
     const needsRelease = type === 'show' || type === 'branded_content';
     if (dateGroup) dateGroup.style.display = needsRelease ? '' : 'none';
     if (autoContainer) autoContainer.innerHTML = needsRelease ? _renderAutoRequestRows(type) : '';
+    _updateCampaignSubmitState();
+  }
+
+  // Proactively disables the submit button until every required field on the
+  // campaign modal (name, type, release date when applicable, every auto-request
+  // row) is filled. Wired into `oninput`/`onchange` on each input.
+  function _updateCampaignSubmitState() {
+    const submitBtn = document.getElementById('modalSubmit');
+    if (!submitBtn) return;
+    const title = document.getElementById('modalTitle')?.textContent;
+    if (title !== 'New Campaign' && title !== 'Edit Campaign') return;
+    const name = document.getElementById('campName')?.value?.trim() || '';
+    const type = document.getElementById('campType')?.value || '';
+    const needsRelease = type === 'show' || type === 'branded_content';
+    const releaseDate = document.getElementById('campReleaseDate')?.value || '';
+    let valid = !!name && !!type && (!needsRelease || !!releaseDate);
+    if (valid && needsRelease) {
+      const deadlines = document.querySelectorAll('.camp-auto-deadline');
+      const teams = document.querySelectorAll('.camp-auto-team');
+      const presetCount = (CAMPAIGN_AUTO_REQUEST_PRESETS[type] || []).length;
+      if (deadlines.length !== presetCount) {
+        valid = false;
+      } else {
+        for (let i = 0; i < deadlines.length; i++) {
+          if (!deadlines[i].value || !teams[i] || !teams[i].value) { valid = false; break; }
+        }
+      }
+    }
+    submitBtn.disabled = !valid;
   }
 
   function _collectAutoRequestRows() {
@@ -1563,6 +1601,85 @@ const App = (() => {
     document.getElementById('modalOverlay').classList.add('open');
     onCampaignTypeChange();
     lucide.createIcons();
+    _updateCampaignSubmitState();
+  }
+
+  // Inline editor for an auto-generated campaign request — admins update the
+  // title, internal deadline, or assigned team without leaving campaign detail.
+  // Changing the team also re-assigns the request to that team's lead so the
+  // notification + kanban targeting stays correct.
+  function openEditCampaignRequestModal(requestId) {
+    const r = DataService.getRequests().find(x => x.id === requestId);
+    if (!r) return;
+    const teamOptions = CAMPAIGN_AUTO_REQUEST_TEAM_KEYS.map(k =>
+      `<option value="${k}" ${r.assignedTeam === k ? 'selected' : ''}>${TEAM_NAMES[k]}</option>`).join('');
+    document.getElementById('modalTitle').textContent = 'Edit Campaign Request';
+    document.getElementById('modalSubmit').textContent = 'Save Changes';
+    document.getElementById('modalBody').innerHTML = `
+      <div class="form-group">
+        <label class="form-label">Title *</label>
+        <input class="form-input" id="campReqTitle" value="${(r.title || '').replace(/"/g, '&quot;')}">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Internal Deadline *</label>
+          <input class="form-input" type="date" id="campReqDeadline" value="${r.internalDeadline || ''}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Team *</label>
+          <select class="form-select" id="campReqTeam">
+            <option value="">Select team…</option>
+            ${teamOptions}
+          </select>
+        </div>
+      </div>
+    `;
+    document.getElementById('modalSubmit').dataset.editCampaignRequestId = requestId;
+    document.getElementById('modalSubmit').disabled = false;
+    document.getElementById('modalOverlay').classList.add('open');
+    lucide.createIcons();
+  }
+
+  async function submitEditCampaignRequest() {
+    const submitBtn = document.getElementById('modalSubmit');
+    const requestId = submitBtn?.dataset.editCampaignRequestId;
+    if (!requestId) { showToast('Missing request id', 'error'); return; }
+    const title = document.getElementById('campReqTitle')?.value?.trim();
+    const internalDeadline = document.getElementById('campReqDeadline')?.value || '';
+    const assignedTeam = document.getElementById('campReqTeam')?.value || '';
+    if (!title) { showToast('Title is required', 'error'); return; }
+    if (!internalDeadline) { showToast('Deadline is required', 'error'); return; }
+    if (!CAMPAIGN_AUTO_REQUEST_TEAM_KEYS.includes(assignedTeam)) { showToast('Pick a valid team', 'error'); return; }
+    const body = { title, internalDeadline, assigned_team: assignedTeam };
+    // Also re-assign to the new team's lead so emails + kanban routing stay correct.
+    const teamLeadEmails = {
+      video: 'arnab.bhattacharjee@hoichoi.tv',
+      graphics: 'sagnik.ghosh@hoichoi.tv',
+      motion_graphics: 'mangaldeep.karmakar@hoichoi.tv',
+    };
+    const lead = (window.USERS || []).find(u => (u.email || '').toLowerCase() === teamLeadEmails[assignedTeam]);
+    if (lead) body.assignedTo = lead.id;
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/requests/${requestId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const r = await res.json().catch(() => ({}));
+        throw new Error(r.error || `Failed (${res.status})`);
+      }
+      await SupabaseClient.loadAll();
+      delete submitBtn.dataset.editCampaignRequestId;
+      closeModal();
+      showToast('Request updated', 'success');
+      renderView(currentView);
+    } catch (e) {
+      showToast(e.message || 'Failed to update request', 'error');
+    } finally {
+      submitBtn.disabled = false;
+    }
   }
 
   async function submitEditCampaign() {
@@ -1654,19 +1771,22 @@ const App = (() => {
     } else if (campaignDetailTab === 'content_schedule') {
       tabContent = renderContentSchedule(campaignId);
     } else {
+      const isAdmin = window.Permissions && window.Permissions.isAdmin();
       tabContent = reqs.length > 0 ? `
       <div class="data-table-container">
         <table class="data-table">
-          <thead><tr><th>Title</th><th>Asset Type</th><th>Assigned To</th><th>Status</th><th>Priority</th><th>Go-Live</th></tr></thead>
+          <thead><tr><th>Title</th><th>Asset Type</th><th>Team</th><th>Assigned To</th><th>Status</th><th>Internal Deadline</th><th>Go-Live</th>${isAdmin ? '<th></th>' : ''}</tr></thead>
           <tbody>
           ${reqs.map(r => `
             <tr onclick="App.openRequestDetail('${r.id}')">
               <td class="table-title-cell">${r.title}</td>
               <td class="text-xs">${r.assetType ? r.assetType.name : '\u2014'}</td>
+              <td class="text-xs">${r.assignedTeam ? (TEAM_NAMES[r.assignedTeam] || r.assignedTeam) : '\u2014'}</td>
               <td>${r.assignee ? `<div class="flex gap-2 items-center">${renderAvatar(r.assignee,'sm')}<span class="text-xs">${r.assignee.name.split(' ')[0]}</span></div>` : '<span class="text-faint text-xs">\u2014</span>'}</td>
               <td>${statusBadge(r.status)}</td>
-              <td><div class="flex gap-2 items-center">${priorityDot(r.priority)}<span class="text-xs">${PRIORITIES[r.priority].label}</span></div></td>
+              <td class="text-xs font-mono">${formatDate(r.internalDeadline)}</td>
               <td class="text-xs font-mono">${formatDate(r.goLiveDate)}</td>
+              ${isAdmin ? `<td onclick="event.stopPropagation()"><button class="btn btn-ghost btn-sm" title="Edit title, deadline, team" onclick="App.openEditCampaignRequestModal('${r.id}')"><i data-lucide="edit-3" style="width:14px;height:14px"></i></button></td>` : ''}
             </tr>
           `).join('')}
           </tbody>
@@ -4103,7 +4223,7 @@ const App = (() => {
     showWorkloadDetail, focusSearch, kanbanCardClick, workloadCardClick,
     uploadVersion, toggleApprovalDropdown, handleApproval,
     toggleAssigneeDropdown, assignToDesigner, toggleApproverDropdown, setApprover, changeHierarchy, changeRole, filterTeamDirectory, showToast,
-    openNewCampaignModal, deleteCampaign, openEditCampaignModal, submitEditCampaign, onCampaignTypeChange,
+    openNewCampaignModal, deleteCampaign, openEditCampaignModal, submitEditCampaign, onCampaignTypeChange, _updateCampaignSubmitState, openEditCampaignRequestModal, submitEditCampaignRequest,
     filterAssets, clearAssetFilters, triggerAssetUpload, handleAssetFile, setAssetView, viewRequestFiles, downloadAsset,
     openCommandPalette, closeCommandPalette, openSearchResult,
     saveSupabaseConfig, testSupabaseConnection, exportData, importData, handleImportFile, resetData, handleCSVSelect, importCSV, _pickAssignUser,
