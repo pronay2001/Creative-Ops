@@ -118,6 +118,7 @@ const SupabaseClient = (() => {
       isExpedited: r.is_expedited || false,
       approverId: r.approver_id || r.approverId || null,
       assignedTeam: r.assigned_team || r.assignedTeam || null,
+      vertical: r.vertical || '',
       deliverables: deliverables,
       department: r.department || '',
     };

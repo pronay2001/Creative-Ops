@@ -35,6 +35,8 @@ const App = (() => {
   let calendarYear = new Date().getFullYear();
   let calendarMonth = new Date().getMonth();
   let calendarShowMine = true;
+  let calendarVerticalFilter = '';
+  let calendarTeamFilter = '';
   let currentFilters = {};
   let assetFilters = {};
   let assetViewMode = 'grid';
@@ -2224,11 +2226,26 @@ const App = (() => {
       });
     }
 
+    function filterByPlatformAndTeam(reqList) {
+      if (!calendarVerticalFilter && !calendarTeamFilter) return reqList;
+      return reqList.filter(r => {
+        if (calendarVerticalFilter && r.vertical !== calendarVerticalFilter) return false;
+        if (calendarTeamFilter && r.assignedTeam !== calendarTeamFilter) return false;
+        return true;
+      });
+    }
+
     const filteredEvents = {};
     Object.keys(events).forEach(dateStr => {
-      const filtered = filterByUser(events[dateStr]);
+      const filtered = filterByPlatformAndTeam(filterByUser(events[dateStr]));
       if (filtered.length) filteredEvents[dateStr] = filtered;
     });
+
+    const verticalList = (typeof SEED_DATA !== 'undefined' && SEED_DATA.verticals) ? SEED_DATA.verticals : [];
+    const calendarTeamKeys = ['video', 'graphics', 'motion_graphics'];
+    const platformLabel = calendarVerticalFilter ? ((verticalList.find(v => v.id === calendarVerticalFilter) || {}).name || calendarVerticalFilter) : '';
+    const teamLabel = calendarTeamFilter ? (TEAM_NAMES[calendarTeamFilter] || calendarTeamFilter) : '';
+    const totalShown = Object.values(filteredEvents).reduce((n, arr) => n + arr.length, 0);
 
     const firstDay = (new Date(calendarYear, calendarMonth, 1).getDay() + 6) % 7;
     const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
@@ -2288,15 +2305,31 @@ const App = (() => {
         <div class="calendar-nav">
           <button class="btn btn-ghost btn-sm" onclick="App.prevMonth()"><i data-lucide="chevron-left"></i></button>
           <span class="calendar-month-label">${monthNames[calendarMonth]} ${calendarYear}</span>
+          <span class="text-xs text-faint" style="margin-left:8px">${totalShown} item${totalShown === 1 ? '' : 's'}</span>
           <button class="btn btn-ghost btn-sm" onclick="App.nextMonth()"><i data-lucide="chevron-right"></i></button>
         </div>
-        <div class="flex gap-2" style="align-items:center">
+        <div class="flex gap-2" style="align-items:center;flex-wrap:wrap">
+          <select class="form-select form-select-sm" onchange="App.setCalendarVerticalFilter(this.value)" style="min-width:160px">
+            <option value="">All Platforms</option>
+            ${verticalList.map(v => `<option value="${v.id}" ${calendarVerticalFilter === v.id ? 'selected' : ''}>${v.name}</option>`).join('')}
+          </select>
+          <select class="form-select form-select-sm" onchange="App.setCalendarTeamFilter(this.value)" style="min-width:150px">
+            <option value="">All Teams</option>
+            ${calendarTeamKeys.map(k => `<option value="${k}" ${calendarTeamFilter === k ? 'selected' : ''}>${TEAM_NAMES[k]}</option>`).join('')}
+          </select>
           ${teamHead ? `<button class="btn ${calendarShowMine ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="App.toggleCalendarMine()">
             <i data-lucide="${calendarShowMine ? 'user' : 'users'}"></i> ${calendarShowMine ? userName + "'s Tasks" : 'All Tasks'}
           </button>` : ''}
           <button class="btn btn-secondary btn-sm" onclick="App.calendarToday()">Today</button>
         </div>
       </div>
+
+      ${(calendarVerticalFilter || calendarTeamFilter) ? `
+      <div class="flex gap-2" style="align-items:center;flex-wrap:wrap;margin:8px 0 4px">
+        ${calendarVerticalFilter ? `<span class="filter-pill" onclick="App.clearCalendarFilter('vertical')" style="cursor:pointer">Platform: ${platformLabel} <i data-lucide="x" style="width:12px;height:12px;vertical-align:middle"></i></span>` : ''}
+        ${calendarTeamFilter ? `<span class="filter-pill" onclick="App.clearCalendarFilter('team')" style="cursor:pointer">Team: ${teamLabel} <i data-lucide="x" style="width:12px;height:12px;vertical-align:middle"></i></span>` : ''}
+        <button class="btn btn-ghost btn-sm" onclick="App.clearCalendarFilters()">Clear all</button>
+      </div>` : ''}
 
       <div class="calendar-legend">
         <div class="calendar-legend-item"><div class="calendar-legend-dot" style="background:var(--color-primary)"></div> Deadline</div>
@@ -2415,6 +2448,36 @@ const App = (() => {
     lucide.createIcons();
   }
 
+  function _rerenderCalendar() {
+    const c = document.getElementById('viewContainer');
+    if (!c) return;
+    c.innerHTML = renderCalendar();
+    initCalendarDnD();
+    lucide.createIcons();
+  }
+
+  function setCalendarVerticalFilter(v) {
+    calendarVerticalFilter = v || '';
+    _rerenderCalendar();
+  }
+
+  function setCalendarTeamFilter(t) {
+    calendarTeamFilter = t || '';
+    _rerenderCalendar();
+  }
+
+  function clearCalendarFilter(which) {
+    if (which === 'vertical') calendarVerticalFilter = '';
+    else if (which === 'team') calendarTeamFilter = '';
+    _rerenderCalendar();
+  }
+
+  function clearCalendarFilters() {
+    calendarVerticalFilter = '';
+    calendarTeamFilter = '';
+    _rerenderCalendar();
+  }
+
   function showDayPopup(event, dateStr) {
     closeDayPopup();
     const currentUserId = window.__currentUser ? window.__currentUser.id : null;
@@ -2429,6 +2492,8 @@ const App = (() => {
         (r.deliverables && r.deliverables.some(d => d.assignedTo === currentUserId))
       );
     }
+    if (calendarVerticalFilter) dayEvents = dayEvents.filter(r => r.vertical === calendarVerticalFilter);
+    if (calendarTeamFilter) dayEvents = dayEvents.filter(r => r.assignedTeam === calendarTeamFilter);
     if (dayEvents.length === 0) return;
 
     const popup = document.createElement('div');
@@ -4374,6 +4439,7 @@ const App = (() => {
     openRequestDetail, closeDetailPanel, advanceStatus, addComment,
     filterRequests, clearFilters,
     prevMonth, nextMonth, calendarToday, showDayPopup, confirmCalendarDrag, cancelCalendarDrag, toggleCalendarMine,
+    setCalendarVerticalFilter, setCalendarTeamFilter, clearCalendarFilter, clearCalendarFilters,
     showWorkloadDetail, focusSearch, kanbanCardClick, workloadCardClick,
     uploadVersion, toggleApprovalDropdown, handleApproval, promptApprovalComment,
     toggleAssigneeDropdown, assignToDesigner, toggleApproverDropdown, setApprover, changeHierarchy, changeRole, filterTeamDirectory, showToast,
