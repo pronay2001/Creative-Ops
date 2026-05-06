@@ -229,10 +229,10 @@ const App = (() => {
         </div>
         ${statusBadge(r.status)}
         <div style="display:flex;gap:var(--space-1);flex-shrink:0" onclick="event.stopPropagation()">
-          <button class="btn btn-sm btn-ghost" title="Approve" onclick="event.stopPropagation();App.handleApproval('${r.id}','approve')">
+          <button class="btn btn-sm btn-ghost" title="Approve" onclick="event.stopPropagation();App.promptApprovalComment(event,'${r.id}','approve')">
             <i data-lucide="check-circle" style="width:14px;height:14px;color:var(--color-success)"></i>
           </button>
-          <button class="btn btn-sm btn-ghost" title="Request changes" onclick="event.stopPropagation();App.handleApproval('${r.id}','changes')">
+          <button class="btn btn-sm btn-ghost" title="Request changes" onclick="event.stopPropagation();App.promptApprovalComment(event,'${r.id}','changes')">
             <i data-lucide="rotate-ccw" style="width:14px;height:14px;color:var(--color-warning)"></i>
           </button>
         </div>
@@ -563,13 +563,13 @@ const App = (() => {
         </div>
         <p style="font-size:0.8rem;color:var(--color-text-muted);margin-bottom:12px;">Review the uploaded assets above, then choose an action:</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-sm" style="background:var(--color-success);color:#fff;border:none;" onclick="App.handleApproval('${r.id}','approve')">
+          <button class="btn btn-sm" style="background:var(--color-success);color:#fff;border:none;" onclick="App.promptApprovalComment(event,'${r.id}','approve')">
             <i data-lucide="check-circle"></i> Approve
           </button>
-          <button class="btn btn-secondary btn-sm" onclick="App.handleApproval('${r.id}','changes')">
+          <button class="btn btn-secondary btn-sm" onclick="App.promptApprovalComment(event,'${r.id}','changes')">
             <i data-lucide="rotate-ccw"></i> Request Changes
           </button>
-          <button class="btn btn-sm" style="background:var(--color-error);color:#fff;border:none;" onclick="App.handleApproval('${r.id}','reject')">
+          <button class="btn btn-sm" style="background:var(--color-error);color:#fff;border:none;" onclick="App.promptApprovalComment(event,'${r.id}','reject')">
             <i data-lucide="x-circle"></i> Reject
           </button>
         </div>
@@ -800,13 +800,13 @@ const App = (() => {
     const dropdown = document.createElement('div');
     dropdown.className = 'action-dropdown';
     dropdown.innerHTML = `
-      <button class="action-dropdown-item approve-action" onclick="App.handleApproval('${reqId}','approve')">
+      <button class="action-dropdown-item approve-action" onclick="App.promptApprovalComment(event,'${reqId}','approve')">
         <i data-lucide="check-circle"></i> Approve
       </button>
-      <button class="action-dropdown-item changes-action" onclick="App.handleApproval('${reqId}','changes')">
+      <button class="action-dropdown-item changes-action" onclick="App.promptApprovalComment(event,'${reqId}','changes')">
         <i data-lucide="rotate-ccw"></i> Request Changes
       </button>
-      <button class="action-dropdown-item reject-action" onclick="App.handleApproval('${reqId}','reject')">
+      <button class="action-dropdown-item reject-action" onclick="App.promptApprovalComment(event,'${reqId}','reject')">
         <i data-lucide="x-circle"></i> Reject
       </button>
     `;
@@ -816,28 +816,128 @@ const App = (() => {
     setTimeout(() => document.addEventListener('click', closeDropdownOnClick), 10);
   }
 
-  function handleApproval(reqId, action) {
+  function handleApproval(reqId, action, comment) {
     closeDropdowns();
     const cuId = (window.__currentUser && window.__currentUser.id) || '';
+    const note = (comment || '').trim();
     if (action === 'approve') {
       DataService.updateRequestStatus(reqId, 'final_approved');
       DataService.addActivity(reqId, cuId, 'approved', 'Final approved');
-      DataService.addComment(reqId, cuId, 'Approved — looks great, ready to go!');
-      showToast('Request approved', 'success');
+      DataService.addComment(reqId, cuId, note || 'Approved — looks great, ready to go!');
+      showToast(note ? 'Request approved with note' : 'Request approved', 'success');
     } else if (action === 'changes') {
       DataService.updateRequestStatus(reqId, 'changes_in_progress');
       DataService.addActivity(reqId, cuId, 'changes_requested', 'Requested changes');
-      DataService.addComment(reqId, cuId, 'Some changes needed before final approval.');
-      showToast('Changes requested', 'info');
+      DataService.addComment(reqId, cuId, note || 'Some changes needed before final approval.');
+      showToast(note ? 'Changes requested with note' : 'Changes requested', 'info');
     } else if (action === 'reject') {
       DataService.updateRequestStatus(reqId, 'changes_in_progress');
       DataService.addActivity(reqId, cuId, 'rejected', 'Rejected this version');
-      DataService.addComment(reqId, cuId, 'This version does not meet requirements. Please revisit the brief.');
+      DataService.addComment(reqId, cuId, note || 'This version does not meet requirements. Please revisit the brief.');
       showToast('Version rejected — sent back for rework', 'error');
     }
     openRequestDetail(reqId);
     renderView(currentView);
     refreshPendingApprovals();
+  }
+
+  function promptApprovalComment(event, reqId, action) {
+    if (event) event.stopPropagation();
+    const trigger = event ? event.currentTarget : null;
+    const rect = trigger ? trigger.getBoundingClientRect() : null;
+
+    closeDropdowns();
+
+    const cfgs = {
+      approve: {
+        title: 'Approve with note',
+        placeholder: 'Optional: add a quick note (e.g. "great work, ship it!")',
+        confirmLabel: 'Approve',
+        confirmClass: 'btn-success',
+        confirmStyle: 'background:var(--color-success);color:#fff;border:none;',
+      },
+      changes: {
+        title: 'Request changes',
+        placeholder: 'Optional: what needs to change? (e.g. "fix the headline copy")',
+        confirmLabel: 'Request changes',
+        confirmClass: '',
+        confirmStyle: 'background:var(--color-warning);color:#111;border:none;',
+      },
+      reject: {
+        title: 'Reject this version',
+        placeholder: 'Optional: why is this being rejected?',
+        confirmLabel: 'Reject',
+        confirmClass: '',
+        confirmStyle: 'background:var(--color-error);color:#fff;border:none;',
+      },
+    };
+    const cfg = cfgs[action] || cfgs.approve;
+
+    const popover = document.createElement('div');
+    popover.className = 'action-dropdown approval-comment-popover';
+    document.body.appendChild(popover);
+
+    const width = 280;
+    if (rect) {
+      popover.style.position = 'fixed';
+      popover.style.margin = '0';
+      popover.style.width = width + 'px';
+      popover.style.minWidth = width + 'px';
+      let top = rect.bottom + 4;
+      // If popover would overflow viewport bottom, place it above the trigger instead
+      const estimatedHeight = 170;
+      if (top + estimatedHeight > window.innerHeight - 8 && rect.top - estimatedHeight > 8) {
+        top = rect.top - estimatedHeight - 4;
+      }
+      let left = rect.right - width;
+      if (left < 8) left = 8;
+      const maxLeft = window.innerWidth - width - 8;
+      if (left > maxLeft) left = maxLeft;
+      popover.style.top = top + 'px';
+      popover.style.left = left + 'px';
+      popover.style.right = 'auto';
+    }
+
+    popover.innerHTML = `
+      <div class="approval-comment-title"></div>
+      <textarea class="form-input approval-comment-input" rows="3"></textarea>
+      <div class="approval-comment-hint text-faint">Leave blank to use the default message.</div>
+      <div class="approval-comment-actions">
+        <button type="button" class="btn btn-sm btn-ghost approval-comment-cancel">Cancel</button>
+        <button type="button" class="btn btn-sm approval-comment-confirm ${cfg.confirmClass}" style="${cfg.confirmStyle}"></button>
+      </div>
+    `;
+    popover.querySelector('.approval-comment-title').textContent = cfg.title;
+    popover.querySelector('.approval-comment-input').placeholder = cfg.placeholder;
+    popover.querySelector('.approval-comment-confirm').textContent = cfg.confirmLabel;
+
+    popover.addEventListener('click', e => e.stopPropagation());
+    popover.addEventListener('mousedown', e => e.stopPropagation());
+
+    const textarea = popover.querySelector('.approval-comment-input');
+    const confirmBtn = popover.querySelector('.approval-comment-confirm');
+    const cancelBtn = popover.querySelector('.approval-comment-cancel');
+
+    cancelBtn.addEventListener('click', () => closeDropdowns());
+    confirmBtn.addEventListener('click', () => {
+      const note = (textarea.value || '').trim();
+      handleApproval(reqId, action, note);
+    });
+    textarea.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        confirmBtn.click();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeDropdowns();
+      }
+    });
+
+    activeDropdown = popover;
+    lucide.createIcons();
+    setTimeout(() => textarea.focus(), 50);
+    setTimeout(() => document.addEventListener('click', closeDropdownOnClick), 10);
   }
 
   /* ── 3d. ASSIGN/REASSIGN ────────────────────────────────────────── */
@@ -4226,7 +4326,7 @@ const App = (() => {
     filterRequests, clearFilters,
     prevMonth, nextMonth, calendarToday, showDayPopup, confirmCalendarDrag, cancelCalendarDrag, toggleCalendarMine,
     showWorkloadDetail, focusSearch, kanbanCardClick, workloadCardClick,
-    uploadVersion, toggleApprovalDropdown, handleApproval,
+    uploadVersion, toggleApprovalDropdown, handleApproval, promptApprovalComment,
     toggleAssigneeDropdown, assignToDesigner, toggleApproverDropdown, setApprover, changeHierarchy, changeRole, filterTeamDirectory, showToast,
     openNewCampaignModal, deleteCampaign, openEditCampaignModal, submitEditCampaign, onCampaignTypeChange, _updateCampaignSubmitState, openEditCampaignRequestModal, submitEditCampaignRequest,
     filterAssets, clearAssetFilters, triggerAssetUpload, handleAssetFile, setAssetView, viewRequestFiles, downloadAsset,
