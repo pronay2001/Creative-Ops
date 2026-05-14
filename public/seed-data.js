@@ -102,6 +102,7 @@ const SEED_DATA = {
     { id: 'in_app_static',               name: 'In-App Static',                    category: 'static', slaDays: 2, icon: 'image',       stages: ['intake','final_approved','scheduled','live'] },
     { id: 'rcs_message',                  name: 'RCS Message',                      category: 'static', slaDays: 2, icon: 'image',       stages: ['intake','final_approved','scheduled','live'] },
     { id: 'emailer',                      name: 'Emailer',                          category: 'static', slaDays: 3, icon: 'image',       stages: ['intake','final_approved','scheduled','live'] },
+    { id: 'newsletter',                   name: 'Newsletter',                       category: 'static', slaDays: 3, icon: 'mail',        stages: ['intake','first_cut','changes_in_progress','final_approved','scheduled','live'] },
     { id: 'aso_seo',                      name: 'ASO / SEO',                        category: 'static', slaDays: 3, icon: 'image',       stages: ['intake','final_approved','scheduled','live'] },
     { id: 'diaspora_static',              name: 'Diaspora Static',                  category: 'static', slaDays: 3, icon: 'image',       stages: ['intake','first_cut','changes_in_progress','final_approved','scheduled','live'] },
     { id: 'cms_thumbnail_refresh',        name: 'CMS Thumbnail Refresh',            category: 'static', slaDays: 2, icon: 'layout-grid', stages: ['intake','final_approved','scheduled','live'] },
