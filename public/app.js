@@ -69,6 +69,157 @@ const App = (() => {
       }
     } catch (e) { /* ignore */ }
   }
+
+  /* ── FORM DRAFTS (autosave) ──────────────────────────────────────── */
+  const FORM_DRAFT_PREFIX = 'creativeops:draft:';
+  const FORM_DRAFT_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+  const formDraftDebounceTimers = {};
+  function _draftScope() { return (window.__currentUser && window.__currentUser.id) || 'anon'; }
+  function _draftKey(fk) { return FORM_DRAFT_PREFIX + _draftScope() + ':' + fk; }
+  function _draftLoad(fk) {
+    try {
+      const raw = localStorage.getItem(_draftKey(fk));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      if (parsed.savedAt && (Date.now() - parsed.savedAt) > FORM_DRAFT_MAX_AGE_MS) {
+        localStorage.removeItem(_draftKey(fk)); return null;
+      }
+      return parsed;
+    } catch (_e) { return null; }
+  }
+  function _draftSave(fk, data) {
+    try { localStorage.setItem(_draftKey(fk), JSON.stringify({ savedAt: Date.now(), data })); } catch (_e) {}
+  }
+  function _draftCancelPending(fk) {
+    if (formDraftDebounceTimers[fk]) { clearTimeout(formDraftDebounceTimers[fk]); delete formDraftDebounceTimers[fk]; }
+  }
+  function _draftClear(fk) {
+    _draftCancelPending(fk);
+    try { localStorage.removeItem(_draftKey(fk)); } catch (_e) {}
+  }
+  function _draftClearPrefix(prefix) {
+    try {
+      const full = FORM_DRAFT_PREFIX + _draftScope() + ':' + prefix;
+      const remove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf(full) === 0) remove.push(k);
+      }
+      remove.forEach(k => {
+        localStorage.removeItem(k);
+        // also cancel pending timers for that fk (key suffix after scope)
+        const suffix = k.slice((FORM_DRAFT_PREFIX + _draftScope() + ':').length);
+        _draftCancelPending(suffix);
+      });
+    } catch (_e) {}
+  }
+  function _draftPurgeOld() {
+    try {
+      const now = Date.now();
+      const remove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || k.indexOf(FORM_DRAFT_PREFIX) !== 0) continue;
+        try {
+          const v = JSON.parse(localStorage.getItem(k) || '{}');
+          if (!v.savedAt || (now - v.savedAt) > FORM_DRAFT_MAX_AGE_MS) remove.push(k);
+        } catch (_e) { remove.push(k); }
+      }
+      remove.forEach(k => localStorage.removeItem(k));
+    } catch (_e) {}
+  }
+  function _snapshotFormFields(root) {
+    const out = {};
+    if (!root) return out;
+    root.querySelectorAll('input, select, textarea').forEach(el => {
+      if (!el.id) return;
+      if (el.type === 'password' || el.type === 'file' || el.type === 'submit' || el.type === 'button' || el.type === 'hidden') return;
+      if (el.dataset && el.dataset.noDraft != null) return;
+      if (el.type === 'checkbox') out[el.id] = { t: 'c', v: el.checked };
+      else if (el.type === 'radio') { if (el.checked) out[el.id] = { t: 'r', v: el.value }; }
+      else if (el.tagName === 'SELECT' && el.multiple) out[el.id] = { t: 'm', v: Array.from(el.selectedOptions).map(o => o.value) };
+      else out[el.id] = { t: 'v', v: el.value };
+    });
+    return out;
+  }
+  function _restoreFormFields(root, snap) {
+    if (!root || !snap) return;
+    Object.keys(snap).forEach(id => {
+      let el;
+      try { el = root.querySelector('#' + CSS.escape(id)); } catch (_e) { el = document.getElementById(id); }
+      if (!el) return;
+      const e = snap[id]; if (!e) return;
+      try {
+        if (e.t === 'c') { el.checked = !!e.v; el.dispatchEvent(new Event('change', { bubbles: true })); }
+        else if (e.t === 'r') { if (el.value === e.v) el.checked = true; }
+        else if (e.t === 'm') { Array.from(el.options).forEach(o => { o.selected = e.v.indexOf(o.value) >= 0; }); el.dispatchEvent(new Event('change', { bubbles: true })); }
+        else { el.value = e.v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }
+      } catch (_e) {}
+    });
+  }
+  // Wire a form root for autosave. opts: { extraSnapshot, extraRestore, bannerHost, onDiscard }
+  function _wireFormDraft(root, formKey, opts) {
+    if (!root) return;
+    opts = opts || {};
+    // Tear down any previous wiring on this root (modal body is reused across
+    // open/close cycles — without this we'd accumulate handlers that snapshot
+    // the current form into stale formKeys).
+    if (typeof root.__formDraftTeardown === 'function') {
+      try { root.__formDraftTeardown(); } catch (_e) {}
+    }
+    const existing = _draftLoad(formKey);
+    if (existing && existing.data) {
+      _restoreFormFields(root, existing.data.dom);
+      if (typeof opts.extraRestore === 'function' && existing.data.extra !== undefined) {
+        try { opts.extraRestore(existing.data.extra); } catch (_e) {}
+      }
+      _showDraftBanner(opts.bannerHost || root, formKey, existing.savedAt, opts.onDiscard);
+    }
+    const persist = () => {
+      const data = { dom: _snapshotFormFields(root) };
+      if (typeof opts.extraSnapshot === 'function') {
+        try { data.extra = opts.extraSnapshot(); } catch (_e) {}
+      }
+      _draftSave(formKey, data);
+    };
+    const debounced = () => {
+      clearTimeout(formDraftDebounceTimers[formKey]);
+      formDraftDebounceTimers[formKey] = setTimeout(persist, 400);
+    };
+    root.addEventListener('input', debounced, true);
+    root.addEventListener('change', debounced, true);
+    root.__formDraftSave = debounced;
+    root.__formDraftTeardown = () => {
+      root.removeEventListener('input', debounced, true);
+      root.removeEventListener('change', debounced, true);
+      _draftCancelPending(formKey);
+      delete root.__formDraftSave;
+      delete root.__formDraftTeardown;
+    };
+  }
+  function _triggerDraftSave(rootId) {
+    const r = document.getElementById(rootId);
+    if (r && typeof r.__formDraftSave === 'function') r.__formDraftSave();
+  }
+  function _showDraftBanner(host, formKey, savedAt, onDiscard) {
+    if (!host) return;
+    const prior = host.querySelector('.draft-restored-banner[data-fk="' + formKey + '"]');
+    if (prior) prior.remove();
+    const banner = document.createElement('div');
+    banner.className = 'draft-restored-banner';
+    banner.dataset.fk = formKey;
+    banner.style.cssText = 'display:flex;align-items:center;gap:10px;margin:0 0 12px 0;padding:8px 12px;background:rgba(210,8,32,0.08);border:1px solid rgba(210,8,32,0.35);border-radius:10px;font-size:12px;color:var(--color-text-muted);';
+    const when = savedAt ? ' · saved ' + timeAgo(savedAt) : '';
+    banner.innerHTML = '<i data-lucide="rotate-ccw" style="width:14px;height:14px;color:var(--color-primary);flex-shrink:0"></i><span style="flex:1">Draft restored' + when + '</span><button type="button" class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 10px">Discard</button>';
+    banner.querySelector('button').addEventListener('click', () => {
+      _draftClear(formKey);
+      banner.remove();
+      if (typeof onDiscard === 'function') { try { onDiscard(); } catch (_e) {} }
+    });
+    host.insertBefore(banner, host.firstChild);
+    try { lucide.createIcons(); } catch (_e) {}
+  }
   let currentFilters = {};
   let assetFilters = {};
   let assetViewMode = 'grid';
@@ -780,6 +931,35 @@ const App = (() => {
     lucide.createIcons();
 
     _loadAssetFilesIntoPanel(id, canUpload);
+
+    // Comment draft autosave (per request)
+    const commentInput = document.getElementById('commentInput');
+    if (commentInput) {
+      const cKey = 'comment:' + id;
+      const cExisting = _draftLoad(cKey);
+      if (cExisting && cExisting.data && typeof cExisting.data.text === 'string' && cExisting.data.text) {
+        commentInput.value = cExisting.data.text;
+        const inputGroup = commentInput.closest('.comment-input-group');
+        const bannerHost = (inputGroup && inputGroup.parentNode) || commentInput.parentNode;
+        if (bannerHost) {
+          // Place banner just above the input group so it's clearly attached.
+          const wrap = document.createElement('div');
+          bannerHost.insertBefore(wrap, inputGroup || commentInput);
+          _showDraftBanner(wrap, cKey, cExisting.savedAt, () => {
+            _draftClear(cKey);
+            commentInput.value = '';
+            wrap.remove();
+          });
+        }
+      }
+      commentInput.addEventListener('input', () => {
+        clearTimeout(formDraftDebounceTimers[cKey]);
+        formDraftDebounceTimers[cKey] = setTimeout(() => {
+          const v = commentInput.value || '';
+          if (!v) _draftClear(cKey); else _draftSave(cKey, { text: v });
+        }, 400);
+      });
+    }
   }
 
   async function _loadAssetFilesIntoPanel(reqId, canUpload) {
@@ -861,6 +1041,7 @@ const App = (() => {
     const input = document.getElementById('commentInput');
     if (!input || !input.value.trim()) return;
     DataService.addComment(reqId, (window.__currentUser && window.__currentUser.id) || '', input.value.trim());
+    _draftClear('comment:' + reqId);
     openRequestDetail(reqId);
   }
 
@@ -918,6 +1099,7 @@ const App = (() => {
       DataService.addComment(reqId, cuId, note || 'This version does not meet requirements. Please revisit the brief.');
       showToast('Version rejected — sent back for rework', 'error');
     }
+    _draftClearPrefix('approval:' + reqId + ':');
     openRequestDetail(reqId);
     renderView(currentView);
     refreshPendingApprovals();
@@ -999,6 +1181,27 @@ const App = (() => {
     const textarea = popover.querySelector('.approval-comment-input');
     const confirmBtn = popover.querySelector('.approval-comment-confirm');
     const cancelBtn = popover.querySelector('.approval-comment-cancel');
+
+    // Restore draft for this approval note (with banner)
+    const aKey = 'approval:' + reqId + ':' + action;
+    const aExisting = _draftLoad(aKey);
+    if (aExisting && aExisting.data && typeof aExisting.data.text === 'string' && aExisting.data.text) {
+      textarea.value = aExisting.data.text;
+      const bannerWrap = document.createElement('div');
+      popover.insertBefore(bannerWrap, popover.firstChild);
+      _showDraftBanner(bannerWrap, aKey, aExisting.savedAt, () => {
+        _draftClear(aKey);
+        textarea.value = '';
+        bannerWrap.remove();
+      });
+    }
+    textarea.addEventListener('input', () => {
+      clearTimeout(formDraftDebounceTimers[aKey]);
+      formDraftDebounceTimers[aKey] = setTimeout(() => {
+        const v = textarea.value || '';
+        if (!v) _draftClear(aKey); else _draftSave(aKey, { text: v });
+      }, 400);
+    });
 
     cancelBtn.addEventListener('click', () => closeDropdowns());
     confirmBtn.addEventListener('click', () => {
@@ -1242,10 +1445,12 @@ const App = (() => {
     if (input && at) input.value = at.name;
     const goLive = document.getElementById('reqGoLive')?.value;
     if (goLive) checkSlaWarning(assetTypeId, goLive);
+    _triggerDraftSave('modalBody');
   }
 
   function updateModalDeliverable(idx, field, value) {
     if (modalDeliverables[idx]) modalDeliverables[idx][field] = value;
+    _triggerDraftSave('modalBody');
   }
 
   function toggleModalDelPlatform(idx, platformId, checked) {
@@ -1254,16 +1459,19 @@ const App = (() => {
     if (checked && !del.platforms.includes(platformId)) del.platforms.push(platformId);
     if (!checked) del.platforms = del.platforms.filter(p => p !== platformId);
     renderDeliverablesBuilder();
+    _triggerDraftSave('modalBody');
   }
 
   function addModalDeliverable() {
     modalDeliverables.push(newDeliverableEntry());
     renderDeliverablesBuilder();
+    _triggerDraftSave('modalBody');
   }
 
   function removeModalDeliverable(idx) {
     modalDeliverables.splice(idx, 1);
     renderDeliverablesBuilder();
+    _triggerDraftSave('modalBody');
   }
 
   function openNewRequestModal(preselectedCampaignId) {
@@ -1395,6 +1603,23 @@ const App = (() => {
     document.getElementById('modalOverlay').classList.add('open');
     renderDeliverablesBuilder();
     lucide.createIcons();
+    _wireFormDraft(document.getElementById('modalBody'), 'newRequest', {
+      bannerHost: document.getElementById('modalBody'),
+      extraSnapshot: () => ({ deliverables: modalDeliverables }),
+      extraRestore: (extra) => {
+        if (extra && Array.isArray(extra.deliverables) && extra.deliverables.length) {
+          modalDeliverables = extra.deliverables.map(d => ({
+            assetTypeId: d.assetTypeId || '',
+            platforms: Array.isArray(d.platforms) ? d.platforms.slice() : [],
+            assignedTo: d.assignedTo || null,
+            status: d.status || 'intake',
+          }));
+          renderDeliverablesBuilder();
+          updateAutoPriority();
+        }
+      },
+      onDiscard: () => { closeModal(); openNewRequestModal(preselectedCampaignId); },
+    });
   }
 
   function _wireAssignSearch() {
@@ -1554,6 +1779,7 @@ const App = (() => {
       }
     });
 
+    _draftClear('newRequest');
     closeModal();
     showToast('Request created successfully', 'success');
     renderView(currentView);
@@ -1669,6 +1895,11 @@ const App = (() => {
     document.getElementById('modalOverlay').classList.add('open');
     lucide.createIcons();
     _updateCampaignSubmitState();
+    _wireFormDraft(document.getElementById('modalBody'), 'newCampaign', {
+      bannerHost: document.getElementById('modalBody'),
+      extraRestore: () => { onCampaignTypeChange(); _updateCampaignSubmitState(); },
+      onDiscard: () => { closeModal(); openNewCampaignModal(); },
+    });
   }
 
   function onCampaignTypeChange() {
@@ -1767,6 +1998,7 @@ const App = (() => {
         throw new Error(body.error || `Failed (${res.status})`);
       }
       await SupabaseClient.loadAll();
+      _draftClear('newCampaign');
       closeModal();
       showToast('Campaign created successfully', 'success');
       renderView(currentView);
@@ -1789,6 +2021,11 @@ const App = (() => {
     onCampaignTypeChange();
     lucide.createIcons();
     _updateCampaignSubmitState();
+    _wireFormDraft(document.getElementById('modalBody'), 'editCampaign:' + campaignId, {
+      bannerHost: document.getElementById('modalBody'),
+      extraRestore: () => { onCampaignTypeChange(); _updateCampaignSubmitState(); },
+      onDiscard: () => { closeModal(); openEditCampaignModal(campaignId); },
+    });
   }
 
   // Inline editor for an auto-generated campaign request — admins update the
@@ -1825,6 +2062,10 @@ const App = (() => {
     document.getElementById('modalSubmit').disabled = false;
     document.getElementById('modalOverlay').classList.add('open');
     lucide.createIcons();
+    _wireFormDraft(document.getElementById('modalBody'), 'editCampaignRequest:' + requestId, {
+      bannerHost: document.getElementById('modalBody'),
+      onDiscard: () => { closeModal(); openEditCampaignRequestModal(requestId); },
+    });
   }
 
   async function submitEditCampaignRequest() {
@@ -1858,6 +2099,7 @@ const App = (() => {
         throw new Error(r.error || `Failed (${res.status})`);
       }
       await SupabaseClient.loadAll();
+      _draftClear('editCampaignRequest:' + requestId);
       delete submitBtn.dataset.editCampaignRequestId;
       closeModal();
       showToast('Request updated', 'success');
@@ -1899,6 +2141,7 @@ const App = (() => {
         throw new Error(r.error || `Failed (${res.status})`);
       }
       await SupabaseClient.loadAll();
+      _draftClear('editCampaign:' + campaignId);
       delete submitBtn.dataset.editCampaignId;
       closeModal();
       showToast('Campaign updated', 'success');
@@ -2032,6 +2275,32 @@ const App = (() => {
     const container = document.getElementById('viewContainer');
     container.innerHTML = renderCampaignDetail(campaignId);
     lucide.createIcons();
+    if (tab === 'knowledge_base') {
+      const kbForm = document.querySelector('.kb-form');
+      const kbFormContainer = document.getElementById('kbFormContainer');
+      if (kbForm) {
+        const kbKey = 'kbEntry:' + campaignId;
+        const existing = _draftLoad(kbKey);
+        if (existing && existing.data) {
+          _restoreFormFields(kbForm, existing.data.dom);
+          if (kbFormContainer) kbFormContainer.style.display = 'block';
+          _showDraftBanner(kbForm, kbKey, existing.savedAt, () => {
+            _draftClear(kbKey); switchCampaignTab(campaignId, 'knowledge_base');
+          });
+        }
+        let kbTimer = null;
+        const persistKb = () => {
+          clearTimeout(kbTimer);
+          kbTimer = setTimeout(() => {
+            const snap = _snapshotFormFields(kbForm);
+            const hasContent = Object.keys(snap).some(k => snap[k] && snap[k].v);
+            if (!hasContent) _draftClear(kbKey); else _draftSave(kbKey, { dom: snap });
+          }, 400);
+        };
+        kbForm.addEventListener('input', persistKb, true);
+        kbForm.addEventListener('change', persistKb, true);
+      }
+    }
   }
 
   async function deleteCampaign(campaignId, campaignName) {
@@ -2116,6 +2385,7 @@ const App = (() => {
     if (!title || !kbContent) { showToast('Title and content are required.', 'error'); return; }
     const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim().replace(/\s+/g, '_')).filter(Boolean) : [];
     DataService.addKnowledgeEntry({ campaignId, title, category, content: kbContent, tags, reference });
+    _draftClear('kbEntry:' + campaignId);
     showToast('Knowledge entry added.', 'success');
     switchCampaignTab(campaignId, 'knowledge_base');
   }
@@ -4311,6 +4581,8 @@ const App = (() => {
   }
 
   function init() {
+    // Purge stale form drafts (>14 days)
+    _draftPurgeOld();
     // Set theme
     var _savedTheme = 'dark'; try { _savedTheme = (document.cookie.match(/creativeops-theme=(\w+)/)||[])[1] || 'dark'; } catch(_e) { /* sandboxed */ }
     document.documentElement.setAttribute('data-theme', _savedTheme);

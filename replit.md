@@ -121,5 +121,12 @@ PostgreSQL with tables: users, campaigns, requests, deliverables, comments, acti
 - `DataService.getActiveTeamMembers()` returns users who have any assigned requests (top-level or deliverable-level).
 - Timesheet user switcher and team overview use `getActiveTeamMembers()` instead of `getDesigners()` to only show people with tasks.
 
+### Form Draft Autosave
+- Per-user localStorage drafts (key: `creativeops:draft:<userId|anon>:<formKey>`) on all create/edit modals and notes — New Request (`newRequest`, includes `modalDeliverables` array), New/Edit Campaign (`newCampaign`, `editCampaign:<id>`), Edit Campaign Request (`editCampaignRequest:<id>`), KB entry (`kbEntry:<campaignId>`), comment input on request detail (`comment:<reqId>`), approval popover notes (`approval:<reqId>:<action>`).
+- Helpers in `public/app.js` near the top: `_draftLoad/_draftSave/_draftClear/_draftClearPrefix/_draftPurgeOld`, `_snapshotFormFields/_restoreFormFields`, `_wireFormDraft(root, key, opts)`, `_showDraftBanner`. Debounced 400 ms, listens on `input`/`change` in capture, skips password/file/hidden + `[data-no-draft]` inputs.
+- Drafts persist on Cancel (user preference) and are cleared only after successful submit. A "Draft restored · saved Xm ago" pill with Discard button appears at the top of the form when a draft is loaded; Discard wipes storage and re-opens the form blank.
+- Stale drafts (>14 days) are purged once on `App.init()`.
+- Deliverable mutations (`addModalDeliverable`/`removeModalDeliverable`/`updateModalDeliverable`/`toggleModalDelPlatform`/`_pickDelAsset`) call `_triggerDraftSave('modalBody')` to capture the array snapshot.
+
 ### Port
 App runs on port 5000 (required for Replit webview).
