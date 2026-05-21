@@ -618,10 +618,12 @@ const CAMPAIGN_TYPES = ['show', 'work_material', 'branded_content'];
 const CAMPAIGN_AUTO_REQUEST_TEAMS = ['video', 'graphics', 'motion_graphics'];
 const CAMPAIGN_AUTO_REQUEST_PRESETS = {
   show: [
-    { title: 'Teaser',  assetTypeId: 'teaser_first_look' },
-    { title: 'AV',      assetTypeId: 'announcement_video' },
-    { title: 'Poster',  assetTypeId: 'poster' },
-    { title: 'Trailer', assetTypeId: 'trailer' },
+    { title: 'Teaser',    assetTypeId: 'teaser_first_look' },
+    { title: 'AV',        assetTypeId: 'announcement_video' },
+    { title: 'Poster',    assetTypeId: 'poster' },
+    { title: 'Poster 2',  assetTypeId: 'poster' },
+    { title: 'Trailer',   assetTypeId: 'trailer' },
+    { title: 'Trailer 2', assetTypeId: 'trailer' },
   ],
   branded_content: [
     { title: 'Poster',               assetTypeId: 'poster' },
@@ -672,20 +674,33 @@ app.post('/api/campaigns', async (req, res) => {
     if (needsReleaseDate) {
       presets = CAMPAIGN_AUTO_REQUEST_PRESETS[type] || [];
       const incoming = Array.isArray(autoRequests) ? autoRequests : [];
-      if (incoming.length !== presets.length) {
-        return res.status(400).json({ error: `Expected ${presets.length} auto-request rows for ${type}, got ${incoming.length}` });
+      if (incoming.length === 0) {
+        return res.status(400).json({ error: 'At least one auto-generated request must be selected' });
       }
-      for (let i = 0; i < presets.length; i++) {
+      // Admin can deselect any preset row at creation, so we accept a subset.
+      // Each row identifies its preset by integer `presetIndex` into the
+      // server-side presets list. Duplicates are rejected so a row can't be
+      // submitted twice.
+      const seenIdx = new Set();
+      for (let i = 0; i < incoming.length; i++) {
         const row = incoming[i] || {};
+        const idx = Number.isInteger(row.presetIndex) ? row.presetIndex : -1;
+        if (idx < 0 || idx >= presets.length) {
+          return res.status(400).json({ error: `Invalid preset index ${row.presetIndex} for ${type}` });
+        }
+        if (seenIdx.has(idx)) {
+          return res.status(400).json({ error: `Duplicate auto-request entry for "${presets[idx].title}"` });
+        }
+        seenIdx.add(idx);
         if (!row.internalDeadline) {
-          return res.status(400).json({ error: `Internal deadline is required for "${presets[i].title}"` });
+          return res.status(400).json({ error: `Internal deadline is required for "${presets[idx].title}"` });
         }
         if (!row.assignedTeam || !CAMPAIGN_AUTO_REQUEST_TEAMS.includes(row.assignedTeam)) {
-          return res.status(400).json({ error: `Team for "${presets[i].title}" must be one of: ${CAMPAIGN_AUTO_REQUEST_TEAMS.join(', ')}` });
+          return res.status(400).json({ error: `Team for "${presets[idx].title}" must be one of: ${CAMPAIGN_AUTO_REQUEST_TEAMS.join(', ')}` });
         }
         validatedRows.push({
-          title: presets[i].title,
-          assetTypeId: presets[i].assetTypeId,
+          title: presets[idx].title,
+          assetTypeId: presets[idx].assetTypeId,
           internalDeadline: row.internalDeadline,
           assignedTeam: row.assignedTeam,
         });

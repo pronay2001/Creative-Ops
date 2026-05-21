@@ -1797,7 +1797,7 @@ const App = (() => {
   };
 
   const CAMPAIGN_AUTO_REQUEST_PRESETS = {
-    show: ['Teaser', 'AV', 'Poster', 'Trailer'],
+    show: ['Teaser', 'AV', 'Poster', 'Poster 2', 'Trailer', 'Trailer 2'],
     branded_content: [
       'Poster', 'Trailer', 'Trailer Byte Story', 'Stream Now',
       'Stream Now Byte Story', 'Brand Reel 1', 'Brand Reel 2',
@@ -1819,15 +1819,17 @@ const App = (() => {
       <div class="form-group">
         <label class="form-label">Auto-Generated Requests *</label>
         <p class="text-xs text-muted" style="margin-bottom:var(--space-2)">
-          Pick a deadline and team for each. All fields are required.
+          Tick the assets you need, then pick a deadline and team for each. Untick any you don't need for this campaign.
         </p>
         <div class="data-table-container">
           <table class="data-table" style="font-size:var(--font-xs)">
-            <thead><tr><th>Title</th><th>Internal Deadline *</th><th>Requisition To *</th></tr></thead>
+            <thead><tr><th style="width:32px"></th><th>Title</th><th>Internal Deadline *</th><th>Requisition To *</th></tr></thead>
             <tbody>
               ${titles.map((t, i) => {
                 const ex = (existing && existing[i]) || {};
+                const checked = ex.enabled === false ? '' : 'checked';
                 return `<tr>
+                  <td><input type="checkbox" class="camp-auto-enabled" data-idx="${i}" ${checked} onchange="App._onAutoRequestToggle(${i})"></td>
                   <td><strong>${t}</strong></td>
                   <td><input type="date" class="form-input camp-auto-deadline" data-idx="${i}" value="${ex.internalDeadline || ''}" oninput="App._updateCampaignSubmitState()" onchange="App._updateCampaignSubmitState()"></td>
                   <td>
@@ -1843,6 +1845,19 @@ const App = (() => {
         </div>
       </div>
     `;
+  }
+
+  // Toggle the deadline/team inputs for a single auto-request row in response
+  // to the enable checkbox. Disabled rows are visually dimmed and skipped by
+  // both validation and the submit payload.
+  function _onAutoRequestToggle(idx) {
+    const cb = document.querySelector(`.camp-auto-enabled[data-idx="${idx}"]`);
+    const deadline = document.querySelector(`.camp-auto-deadline[data-idx="${idx}"]`);
+    const team = document.querySelector(`.camp-auto-team[data-idx="${idx}"]`);
+    const enabled = !!(cb && cb.checked);
+    if (deadline) { deadline.disabled = !enabled; deadline.style.opacity = enabled ? '' : '0.5'; }
+    if (team) { team.disabled = !enabled; team.style.opacity = enabled ? '' : '0.5'; }
+    _updateCampaignSubmitState();
   }
 
   function _renderCampaignFormFields(values) {
@@ -1931,15 +1946,21 @@ const App = (() => {
     // Auto-request row validation applies only at creation; editing skips it.
     const isCreate = title === 'New Campaign';
     if (valid && needsRelease && isCreate) {
+      const checkboxes = document.querySelectorAll('.camp-auto-enabled');
       const deadlines = document.querySelectorAll('.camp-auto-deadline');
       const teams = document.querySelectorAll('.camp-auto-team');
       const presetCount = (CAMPAIGN_AUTO_REQUEST_PRESETS[type] || []).length;
       if (deadlines.length !== presetCount) {
         valid = false;
       } else {
+        let enabledCount = 0;
         for (let i = 0; i < deadlines.length; i++) {
+          if (!checkboxes[i] || !checkboxes[i].checked) continue;
+          enabledCount++;
           if (!deadlines[i].value || !teams[i] || !teams[i].value) { valid = false; break; }
         }
+        // Require at least one auto-request when the campaign type uses presets.
+        if (valid && enabledCount === 0) valid = false;
       }
     }
     submitBtn.disabled = !valid;
@@ -1947,10 +1968,13 @@ const App = (() => {
 
   function _collectAutoRequestRows() {
     const rows = [];
+    const checkboxes = document.querySelectorAll('.camp-auto-enabled');
     const deadlines = document.querySelectorAll('.camp-auto-deadline');
     const teams = document.querySelectorAll('.camp-auto-team');
     for (let i = 0; i < deadlines.length; i++) {
+      if (!checkboxes[i] || !checkboxes[i].checked) continue;
       rows.push({
+        presetIndex: i,
         internalDeadline: deadlines[i].value || '',
         assignedTeam: teams[i] ? teams[i].value : '',
       });
@@ -1974,13 +1998,13 @@ const App = (() => {
     let autoRequests = [];
     if (needsRelease) {
       autoRequests = _collectAutoRequestRows();
-      const presetCount = (CAMPAIGN_AUTO_REQUEST_PRESETS[campaignType] || []).length;
-      if (autoRequests.length !== presetCount) {
-        showToast('Auto-request rows are incomplete', 'error'); return;
+      if (!autoRequests.length) {
+        showToast('Tick at least one auto-generated request', 'error'); return;
       }
+      const labels = CAMPAIGN_AUTO_REQUEST_PRESETS[campaignType] || [];
       for (let i = 0; i < autoRequests.length; i++) {
         const r = autoRequests[i];
-        const label = CAMPAIGN_AUTO_REQUEST_PRESETS[campaignType][i];
+        const label = labels[r.presetIndex] || `Row ${r.presetIndex}`;
         if (!r.internalDeadline) { showToast(`Set a deadline for "${label}"`, 'error'); return; }
         if (!r.assignedTeam) { showToast(`Select a team for "${label}"`, 'error'); return; }
       }
@@ -4752,7 +4776,7 @@ const App = (() => {
     showWorkloadDetail, focusSearch, kanbanCardClick, workloadCardClick,
     uploadVersion, toggleApprovalDropdown, handleApproval, promptApprovalComment,
     toggleAssigneeDropdown, assignToDesigner, toggleApproverDropdown, setApprover, changeHierarchy, changeRole, filterTeamDirectory, showToast,
-    openNewCampaignModal, deleteCampaign, openEditCampaignModal, submitEditCampaign, onCampaignTypeChange, _updateCampaignSubmitState, openEditCampaignRequestModal, submitEditCampaignRequest,
+    openNewCampaignModal, deleteCampaign, openEditCampaignModal, submitEditCampaign, onCampaignTypeChange, _updateCampaignSubmitState, _onAutoRequestToggle, openEditCampaignRequestModal, submitEditCampaignRequest,
     filterAssets, clearAssetFilters, triggerAssetUpload, handleAssetFile, setAssetView, viewRequestFiles, downloadAsset,
     openCommandPalette, closeCommandPalette, openSearchResult,
     saveSupabaseConfig, testSupabaseConnection, exportData, importData, handleImportFile, resetData, handleCSVSelect, importCSV, _pickAssignUser,

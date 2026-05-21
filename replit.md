@@ -81,9 +81,9 @@ public/
 - **Types**: `show`, `work_material`, `branded_content`. Type + release date selected at creation.
 - **Release date**: required for Show and Branded Content; not allowed for Work Material. Mirrored to `go_live_date` of every auto-generated request.
 - **Auto-generated requests** (created atomically in same transaction as campaign):
-  - Show (4): Teaser → `teaser_first_look`, AV → `announcement_video`, Poster → `poster`, Trailer → `trailer`.
+  - Show (6): Teaser → `teaser_first_look`, AV → `announcement_video`, Poster → `poster`, Poster 2 → `poster`, Trailer → `trailer`, Trailer 2 → `trailer`.
   - Branded Content (9): Poster, Trailer, Trailer Byte Story (`stories`), Stream Now (`post_4_5_brand`), Stream Now Byte Story (`stories`), Brand Reel 1 (`organic_reel`), Brand Reel 2 (`organic_reel`), Branded Static (`post_4_5_brand`), Celebrity Vignette (`hoichoi_brand_promo`).
-  - Each auto-request needs a per-row Internal Deadline + Team (Graphics/Video/Motion Graphics) chosen by the admin in the modal. Auto-requests get assigned to the team lead, status=`intake`, approver_id=null, vertical/department blank — admin edits later.
+  - Each preset row has an enable checkbox (default on). Admin can untick rows that aren't needed for a given campaign — unticked rows are dimmed, skipped by validation, and not sent to the server. At least one row must remain ticked. Each enabled row needs a per-row Internal Deadline + Team (Graphics/Video/Motion Graphics) chosen by the admin in the modal. The client sends `autoRequests: [{ presetIndex, internalDeadline, assignedTeam }, …]` and the server validates each `presetIndex` against `CAMPAIGN_AUTO_REQUEST_PRESETS[type]` (rejects out-of-range and duplicate indices). Auto-requests get assigned to the team lead, status=`intake`, approver_id=null, vertical/department blank — admin edits later.
 - **Permissions**: Create + Edit + Delete = hierarchy admin only (POST/PATCH/DELETE `/api/campaigns`). Edit affordance hidden via `Permissions.isAdmin()` on detail page.
 - **Server constants**: `CAMPAIGN_TYPES` and `CAMPAIGN_AUTO_REQUEST_PRESETS` in `server.js` are the source of truth for type IDs and preset asset-type mapping. Mirror lists in `public/app.js` (`CAMPAIGN_TYPE_LABELS`, `CAMPAIGN_AUTO_REQUEST_PRESETS`) — keep titles/order in sync.
 
