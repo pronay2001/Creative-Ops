@@ -11,19 +11,10 @@ const crypto = require('crypto');
 
 const csvUpload = multer({ limits: { fileSize: 5 * 1024 * 1024 }, storage: multer.memoryStorage() });
 const fs = require('fs');
+const storage = require('./services/storage');
 const assetUpload = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => {
-      const dir = path.join(__dirname, 'uploads');
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      cb(null, dir);
-    },
-    filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname);
-      cb(null, `${Date.now()}_${crypto.randomBytes(8).toString('hex')}${ext}`);
-    }
-  }),
+  storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
     const allowed = /\.(jpg|jpeg|png|gif|webp|svg|mp4|mov|avi|wmv|psd|ai|pdf|zip|eps|tif|tiff|bmp|indd|fig)$/i;
     if (allowed.test(path.extname(file.originalname))) cb(null, true);
@@ -840,6 +831,11 @@ app.delete('/api/campaigns/:id', async (req, res) => {
 
     const reqs = await pool.query('SELECT id FROM requests WHERE campaign_id = $1', [id]);
     for (const r of reqs.rows) {
+      const af = await pool.query('SELECT file_path FROM asset_files WHERE request_id = $1', [r.id]);
+      await Promise.all(af.rows.map(row => {
+        if (!row.file_path || storage.isLegacyDiskPath(row.file_path)) return Promise.resolve();
+        return storage.del(row.file_path);
+      }));
       await pool.query('DELETE FROM asset_files WHERE request_id = $1', [r.id]);
       await pool.query('DELETE FROM comments WHERE request_id = $1', [r.id]);
       await pool.query('DELETE FROM activity_log WHERE request_id = $1', [r.id]);
@@ -1395,24 +1391,35 @@ app.post('/api/requests/:id/upload', assetUpload.single('file'), async (req, res
     const isDeliverableAssignee = hasDeliverableAssigned.rows.length > 0;
 
     if (!isAssignee && !isDeliverableAssignee && !isLead && !isHierarchyAdmin) {
-      fs.unlink(req.file.path, () => {});
       return res.status(403).json({ error: 'Only the assigned person can upload assets for this request' });
     }
 
     const existing = await pool.query('SELECT COALESCE(MAX(version),0) as max_ver FROM asset_files WHERE request_id = $1', [id]);
     const nextVersion = (existing.rows[0].max_ver || 0) + 1;
-    const fileId = 'af_' + Date.now();
+    const fileId = 'af_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex');
 
-    await pool.query(
-      `INSERT INTO asset_files (id, request_id, version, filename, original_name, file_path, file_size, mime_type, uploaded_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [fileId, id, nextVersion, req.file.filename, req.file.originalname, req.file.path, req.file.size, req.file.mimetype, req.session.userId]
-    );
+    const objectKey = storage.buildAssetKey(id, fileId, req.file.originalname);
+    await storage.put(objectKey, req.file.buffer, req.file.mimetype);
 
-    await pool.query(
-      `INSERT INTO activity_log (request_id, user_id, action, details) VALUES ($1, $2, 'uploaded', $3)`,
-      [id, req.session.userId, JSON.stringify({ version: nextVersion, filename: req.file.originalname })]
-    );
+    // Compensating cleanup: if the DB write fails after the bucket put, the
+    // object would otherwise be orphaned (no asset_files row pointing at it
+    // and no way for the user to surface/delete it). Delete the object before
+    // surfacing the error.
+    try {
+      await pool.query(
+        `INSERT INTO asset_files (id, request_id, version, filename, original_name, file_path, file_size, mime_type, uploaded_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [fileId, id, nextVersion, objectKey, req.file.originalname, objectKey, req.file.size, req.file.mimetype, req.session.userId]
+      );
+
+      await pool.query(
+        `INSERT INTO activity_log (request_id, user_id, action, details) VALUES ($1, $2, 'uploaded', $3)`,
+        [id, req.session.userId, JSON.stringify({ version: nextVersion, filename: req.file.originalname })]
+      );
+    } catch (dbErr) {
+      storage.del(objectKey).catch(() => {});
+      throw dbErr;
+    }
 
     res.json({
       id: fileId,
@@ -1425,7 +1432,7 @@ app.post('/api/requests/:id/upload', assetUpload.single('file'), async (req, res
       uploadedAt: new Date().toISOString()
     });
   } catch (err) {
-    if (req.file && req.file.path) fs.unlink(req.file.path, () => {});
+    console.error('[upload] failed', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1520,13 +1527,26 @@ app.get('/api/assets/:fileId/download', async (req, res) => {
       return res.status(403).json({ error: 'You do not have permission to download this file' });
     }
 
-    if (!fs.existsSync(f.file_path)) {
-      return res.status(404).json({ error: 'File not found on disk' });
-    }
-
     res.setHeader('Content-Disposition', `attachment; filename="${f.original_name}"`);
     res.setHeader('Content-Type', f.mime_type || 'application/octet-stream');
-    res.sendFile(path.resolve(f.file_path));
+
+    // Legacy: files uploaded before the Object Storage migration live on local
+    // disk and `file_path` holds an absolute filesystem path. New uploads store
+    // an object key (e.g. 'assets/<reqId>/<fileId>.png') in `file_path`.
+    if (storage.isLegacyDiskPath(f.file_path)) {
+      if (!fs.existsSync(f.file_path)) {
+        return res.status(404).json({ error: 'File not found on disk' });
+      }
+      return res.sendFile(path.resolve(f.file_path));
+    }
+
+    const stream = storage.getReadStream(f.file_path);
+    stream.on('error', (err) => {
+      console.error('[download] stream error', f.file_path, err.message);
+      if (!res.headersSent) res.status(404).json({ error: 'File not found in storage' });
+      else res.end();
+    });
+    stream.pipe(res);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

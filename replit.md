@@ -106,11 +106,13 @@ PostgreSQL with tables: users, campaigns, requests, deliverables, comments, acti
 - `requests.vertical` TEXT column stores vertical (hoichoi, SVF, etc.)
 - `timesheet_clock` tracks clock-in/clock-out entries with start/end times, duration, auto-sync to timesheet_entries
 - Asset type ID migration in migrate.js maps old IDs to new taxonomy (e.g. repurpose_reel→scene_cutdown)
-- `asset_files` stores uploaded asset files with version tracking, linked to requests. Files stored in `uploads/` directory on disk.
+- `asset_files` stores uploaded asset files with version tracking, linked to requests. Files are stored in Replit Object Storage; `file_path` holds the bucket object key (e.g. `assets/<requestId>/<fileId><ext>`). Legacy rows from before the Object Storage migration keep an absolute disk path in `file_path` and are served via a fallback that reads from local `uploads/`.
 
 ### Asset Management
-- **Upload**: `POST /api/requests/:id/upload` — multer disk storage, 50MB limit. Only assigned users (top-level or deliverable), leads, or hierarchy admins can upload.
-- **Download**: `GET /api/assets/:fileId/download` — permission check: request creator, assignee, uploader, lead, approver role, designated approver, or hierarchy manager can download.
+- **Storage backend**: Replit Object Storage via `services/storage.js` (thin adapter exposing `put/getReadStream/del/exists/buildAssetKey/isLegacyDiskPath`). Bucket id from `DEFAULT_OBJECT_STORAGE_BUCKET_ID`; auth via the Replit sidecar at `http://127.0.0.1:1106`. Adapter is the only call-site to `@google-cloud/storage`, so swapping to S3/Azure Blob later is a single-file change.
+- **Upload**: `POST /api/requests/:id/upload` — multer memory storage, 50MB limit, same allowlist (jpg/jpeg/png/gif/webp/svg/mp4/mov/avi/wmv/psd/ai/pdf/zip/eps/tif/tiff/bmp/indd/fig). Buffer is streamed into the bucket under key `assets/<requestId>/<fileId><ext>`; the key is written to `asset_files.file_path` (and `filename`). Only assigned users (top-level or deliverable), leads, or hierarchy admins can upload.
+- **Download**: `GET /api/assets/:fileId/download` — streams from the bucket by key. If `file_path` looks like a legacy disk path (starts with `/` or contains `uploads/`), falls back to reading from the local `uploads/` directory so pre-migration files keep working without a migration script. Permission check: request creator, assignee, uploader, lead, approver role, designated approver, or hierarchy manager can download.
+- **Cascade delete**: `DELETE /api/campaigns/:id` now removes bucket objects for each child request's `asset_files` before deleting the rows (best-effort, legacy disk-path rows are skipped).
 - **List files**: `GET /api/requests/:id/files` — returns all uploaded files for a request with version info. Same permission scope as download.
 - **Detail panel**: Uploaded assets shown prominently at top of request detail with LATEST file highlighted (primary border). Each file shows icon, version, filename, size, uploader, date, and download button. Files load asynchronously via `_loadAssetFilesIntoPanel()`.
 - **Review & Approve section**: When request status is `under_review` or `first_cut`, approvers see a highlighted approval section with Approve/Request Changes/Reject buttons directly below the asset list. Reject sends status back to `changes_in_progress`.
