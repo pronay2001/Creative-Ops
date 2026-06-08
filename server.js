@@ -28,7 +28,7 @@ const PORT = process.env.PORT || 5000;
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 20,
-  min: 2,
+  min: 0,  // 0 for serverless (Vercel); persistent servers use 2
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
 });
@@ -2245,4 +2245,14 @@ async function start() {
   });
 }
 
-start();
+// On Vercel the module is imported by the serverless runtime — export the app
+// and let Vercel handle the listener. Everywhere else (local, Railway) call
+// start() directly so migrations run and the server binds to PORT.
+if (require.main === module) {
+  start();
+} else {
+  // Still run migrations when the serverless function cold-starts
+  migrate().catch(err => console.error('[server] Migration failed:', err.message));
+}
+
+module.exports = app;

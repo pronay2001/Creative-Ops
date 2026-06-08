@@ -10,7 +10,10 @@ const path = require('path');
 const IS_REPLIT = !!process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
 
 // ── Local-disk helpers ───────────────────────────────────────────────────────
-const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
+// Vercel's filesystem is read-only except for /tmp; use /tmp there.
+const UPLOADS_DIR = process.env.VERCEL
+  ? path.join('/tmp', 'uploads')
+  : path.join(__dirname, '..', 'uploads');
 
 function ensureUploadsDir() {
   if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
