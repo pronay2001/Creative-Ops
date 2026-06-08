@@ -6,8 +6,9 @@ node_modules/
 .env.local
 .env.*.local
 
-# Uploads (local disk files)
-uploads/
+# Uploads (local disk files — keep directory, ignore contents)
+uploads/*
+!uploads/.gitkeep
 
 # Replit internals
 .local/
