@@ -4722,6 +4722,7 @@ const App = (() => {
       applyCurrentUserToUI();
       showApp();
       init();
+      if (SupabaseClient.initSSE) SupabaseClient.initSSE(); // real-time sync
       refreshPendingApprovals();
       startPendingApprovalsAutoRefresh();
     } catch (e) {

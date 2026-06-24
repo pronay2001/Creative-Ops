@@ -185,6 +185,7 @@ async function handleRegister() {
     applyCurrentUserToUI();
     showApp();
     App.init();
+    if (SupabaseClient.initSSE) SupabaseClient.initSSE(); // real-time sync
   } catch (e) {
     errEl.textContent = e.message;
     errEl.style.display = 'block';
@@ -211,6 +212,7 @@ async function handleLogin() {
     applyCurrentUserToUI();
     showApp();
     App.init();
+    if (SupabaseClient.initSSE) SupabaseClient.initSSE(); // real-time sync
   } catch (e) {
     errEl.textContent = e.message;
     errEl.style.display = 'block';

@@ -420,6 +420,63 @@ const SupabaseClient = (() => {
     }
   }
 
+  // ── Real-time SSE sync ─────────────────────────────────────────────────────
+  // Connects to /api/events and keeps all clients in sync automatically.
+  // When another user makes a change, we reload all data and re-render the
+  // current view — but only if no modal or detail panel is open (to avoid
+  // interrupting the current user mid-task). If something is open, we show
+  // a subtle toast instead.
+
+  let _sseSource = null;
+  let _sseRetryDelay = 3000;
+
+  function _sseRefresh() {
+    loadAll().then(() => {
+      if (typeof App === 'undefined') return;
+      const modalOpen = document.querySelector(
+        '.modal-overlay, .modal-backdrop, [id$="-modal"][style*="flex"], [id$="-modal"][style*="block"]'
+      );
+      const detailOpen = document.querySelector('.detail-panel.open, #requestDetailPanel.open');
+      if (modalOpen || detailOpen) {
+        // Don't disrupt what the user is doing — just show a quiet toast
+        if (App.showToast) App.showToast('Updated by another user — close this panel to see changes', 'info');
+      } else {
+        // Safe to re-render in place
+        const hash = (window.location.hash.slice(1) || 'dashboard');
+        if (App.navigate) App.navigate(hash);
+      }
+    }).catch(() => {}); // silent — connection may be dropped
+  }
+
+  function initSSE() {
+    if (typeof EventSource === 'undefined') return; // not supported
+    if (_sseSource) { _sseSource.close(); _sseSource = null; }
+
+    _sseSource = new EventSource('/api/events');
+
+    _sseSource.onmessage = (e) => {
+      try {
+        const event = JSON.parse(e.data);
+        if (event.type === 'refresh') _sseRefresh();
+        // 'connected' is just a handshake — ignore
+      } catch (_) {}
+    };
+
+    _sseSource.onerror = () => {
+      _sseSource.close();
+      _sseSource = null;
+      // Exponential back-off capped at 30s
+      setTimeout(() => {
+        _sseRetryDelay = Math.min(_sseRetryDelay * 1.5, 30000);
+        initSSE();
+      }, _sseRetryDelay);
+    };
+
+    _sseSource.onopen = () => {
+      _sseRetryDelay = 3000; // reset back-off on successful connect
+    };
+  }
+
   return {
     loadAll,
     loadPendingApprovals,
@@ -443,6 +500,7 @@ const SupabaseClient = (() => {
     exportData,
     importData,
     resetData,
+    initSSE,
     query: async () => [],
     insert: async () => [{}],
     update: async () => [{}],

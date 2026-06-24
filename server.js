@@ -45,6 +45,37 @@ app.use(session({
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── Server-Sent Events — real-time broadcast ────────────────────────────────
+const sseClients = new Set();
+
+function broadcast(event, excludeUserId) {
+  const data = JSON.stringify(event);
+  for (const client of sseClients) {
+    if (client.userId === excludeUserId) continue; // skip the user who made the change
+    try {
+      client.res.write(`data: ${data}\n\n`);
+    } catch (e) {
+      sseClients.delete(client); // dead connection
+    }
+  }
+}
+
+// Intercept successful write responses and broadcast to other clients
+app.use('/api', (req, res, next) => {
+  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
+    const origJson = res.json.bind(res);
+    res.json = function (data) {
+      const result = origJson(data);
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        const entity = req.path.split('/')[1] || 'data'; // /requests/:id → 'requests'
+        broadcast({ type: 'refresh', entity, method: req.method }, req.session?.userId);
+      }
+      return result;
+    };
+  }
+  next();
+});
+
 function uuid() {
   return crypto.randomUUID();
 }
@@ -2218,6 +2249,33 @@ app.use((err, req, res, next) => {
     return res.status(400).json({ error: 'Invalid upload field name. Use "file" as the field name.' });
   }
   next(err);
+});
+
+// ── SSE endpoint ───────────────────────────────────────
+app.get('/api/events', (req, res) => {
+  if (!req.session?.userId) return res.status(401).end();
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering on Railway
+  res.flushHeaders();
+
+  const client = { res, userId: req.session.userId };
+  sseClients.add(client);
+
+  // Confirm connection
+  res.write(`data: ${JSON.stringify({ type: 'connected', userId: req.session.userId })}\n\n`);
+
+  // Heartbeat every 25s to keep the connection alive through proxies
+  const heartbeat = setInterval(() => {
+    try { res.write(':heartbeat\n\n'); } catch (e) { clearInterval(heartbeat); }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    sseClients.delete(client);
+  });
 });
 
 // ── SPA Fallback ───────────────────────────────────────
