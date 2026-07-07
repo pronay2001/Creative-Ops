@@ -123,4 +123,47 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-module.exports = { sendChatMessage, isConfigured };
+// ── Channel Notifications ────────────────────────────────────────────────────
+// Posts a message to a Teams channel.
+// Requires TEAMS_CHANNEL_TEAM_ID + TEAMS_CHANNEL_ID env vars and the
+// ChannelMessage.Send application permission granted in Azure.
+
+function isChannelConfigured() {
+  return isConfigured() &&
+    !!(process.env.TEAMS_CHANNEL_TEAM_ID && process.env.TEAMS_CHANNEL_ID);
+}
+
+async function sendChannelNotification({ emoji, title, rows, url }) {
+  if (!isChannelConfigured()) return;
+
+  const teamId    = process.env.TEAMS_CHANNEL_TEAM_ID;
+  const channelId = process.env.TEAMS_CHANNEL_ID;
+  const token     = await getToken();
+
+  const emojiPrefix = emoji ? `${emoji}&nbsp;` : '';
+  const detailRows  = Array.isArray(rows) && rows.length
+    ? `<table style="border-collapse:collapse;margin-top:8px;font-size:13px;">
+        ${rows.map(([label, value]) =>
+          `<tr>
+            <td style="color:#888;padding:2px 12px 2px 0;white-space:nowrap;vertical-align:top;">${escapeHtml(label)}</td>
+            <td style="color:#333;padding:2px 0;vertical-align:top;">${escapeHtml(String(value || '—'))}</td>
+          </tr>`
+        ).join('')}
+       </table>`
+    : '';
+  const cta = url
+    ? `<p style="margin:12px 0 0;"><a href="${escapeHtml(url)}" style="color:#d20820;font-weight:600;">Open in CreativeOps →</a></p>`
+    : '';
+
+  const content = `<p style="margin:0;font-size:15px;font-weight:700;">${emojiPrefix}${escapeHtml(title)}</p>${detailRows}${cta}`;
+
+  await graph(
+    'POST',
+    `/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/messages`,
+    token,
+    { body: { contentType: 'html', content } }
+  );
+  console.log(`[teams] Channel notification: ${title}`);
+}
+
+module.exports = { sendChatMessage, sendChannelNotification, isConfigured, isChannelConfigured };

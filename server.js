@@ -153,6 +153,22 @@ function fireEmail(to, subject, html, requestId) {
   notify(to, subject, html, requestId);
 }
 
+// ── Teams Channel Notification helper ────────────────────────────────────────
+// Fire-and-forget. Never throws — channel failure must never block a response.
+function notifyChannel(opts) {
+  if (!teamsService || !teamsService.sendChannelNotification) return;
+  teamsService.sendChannelNotification(opts).catch(err => {
+    console.error('[teams-channel] Notification failed:', err.message);
+  });
+}
+
+const STATUS_LABELS = {
+  intake: 'Intake', first_cut: 'First Cut', under_review: 'Under Review',
+  changes_in_progress: 'Changes in Progress', final_approved: '✅ Final Approved',
+  rejected: '❌ Rejected', scheduled: 'Scheduled', live: 'Live',
+};
+const TEAM_LABELS = { graphics: 'Graphics', video: 'Video', motion_graphics: 'Motion Graphics' };
+
 // ── Auth helpers ──────────────────────────────────────
 
 const ALLOWED_DOMAINS = ['hoichoi.tv', 'svf.in'];
@@ -764,7 +780,19 @@ app.post('/api/campaigns', async (req, res) => {
     }
 
     await client.query('COMMIT');
-    res.json(campaignResult.rows[0]);
+    const campaignRow = campaignResult.rows[0];
+    res.json(campaignRow);
+
+    // Channel notification
+    notifyChannel({
+      emoji: '🎬',
+      title: `New campaign created: ${name}`,
+      rows: [
+        ['Type',    (campaignRow.campaign_type || 'show').replace(/_/g, ' ')],
+        ['Release', campaignRow.release_date || '—'],
+        ['Status',  campaignRow.status || 'active'],
+      ],
+    });
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (_) {}
     console.error('[campaigns:create]', err.message);
@@ -1003,6 +1031,19 @@ app.post('/api/requests', async (req, res) => {
     const dels = await pool.query('SELECT * FROM deliverables WHERE request_id = $1', [id]);
     row.deliverables = dels.rows;
     res.json(row);
+
+    // Channel notification
+    notifyChannel({
+      emoji: '📋',
+      title: `New request: ${title}`,
+      rows: [
+        ['Team',     TEAM_LABELS[assignedTeam] || assignedTeam || '—'],
+        ['Priority', priority || 'medium'],
+        ['Deadline', internalDeadline || '—'],
+        ['Vertical', vertical || '—'],
+      ],
+      url: getRequestUrl(id),
+    });
 
     try {
       if (emailService && emailTemplates) {
@@ -1317,6 +1358,18 @@ app.post('/api/requests/:id/assign', async (req, res) => {
 
     res.json({ success: true, data: updated });
 
+    // Channel notification
+    notifyChannel({
+      emoji: '👤',
+      title: `Request assigned: ${updated.title}`,
+      rows: [
+        ['Assigned to', assigneeName],
+        ['Team',        TEAM_LABELS[updated.assigned_team] || updated.assigned_team || '—'],
+        ['Status',      STATUS_LABELS[updated.status] || updated.status || '—'],
+      ],
+      url: getRequestUrl(id),
+    });
+
     try {
       if (emailService && emailTemplates && userId) {
         const enrichedReq = await enrichRequestForEmail(updated);
@@ -1382,6 +1435,23 @@ app.post('/api/requests/:id/status', async (req, res) => {
     );
 
     res.json({ success: true, data: request });
+
+    // Channel notification for every status change
+    const statusEmojis = {
+      intake: '📥', first_cut: '✂️', under_review: '👀',
+      changes_in_progress: '🔄', final_approved: '✅',
+      rejected: '❌', scheduled: '📅', live: '🚀',
+    };
+    notifyChannel({
+      emoji: statusEmojis[status] || '🔄',
+      title: `Status updated: ${request.title}`,
+      rows: [
+        ['From',   STATUS_LABELS[oldStatus] || oldStatus],
+        ['To',     STATUS_LABELS[status]    || status],
+        ['Team',   TEAM_LABELS[request.assigned_team] || request.assigned_team || '—'],
+      ],
+      url: getRequestUrl(id),
+    });
 
     if (emailService && emailTemplates && status === 'final_approved') {
       const ids = new Set();
@@ -1610,6 +1680,23 @@ app.post('/api/requests/:id/comments', async (req, res) => {
     );
 
     res.json(result.rows[0]);
+
+    // Channel notification
+    try {
+      const reqRow = await pool.query('SELECT title FROM requests WHERE id = $1', [id]);
+      const commenter = await pool.query('SELECT name FROM users WHERE id = $1', [userId]);
+      const reqTitle = reqRow.rows[0]?.title || id;
+      const commenterName = commenter.rows[0]?.name || 'Someone';
+      notifyChannel({
+        emoji: '💬',
+        title: `New comment on: ${reqTitle}`,
+        rows: [
+          ['By',      commenterName],
+          ['Comment', text.substring(0, 120) + (text.length > 120 ? '…' : '')],
+        ],
+        url: getRequestUrl(id),
+      });
+    } catch (_) {}
 
     if (false) {
       const request = await pool.query('SELECT * FROM requests WHERE id = $1', [id]);
