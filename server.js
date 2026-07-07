@@ -1303,6 +1303,41 @@ app.post('/api/diagnostics/teams-test', async (req, res) => {
   }
 });
 
+app.post('/api/diagnostics/channel-test', async (req, res) => {
+  try {
+    const user = await getSessionUser(req);
+    if (!user || user.hierarchy_level !== 'admin') {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    const configured = teamsService && teamsService.isChannelConfigured && teamsService.isChannelConfigured();
+    if (!configured) {
+      return res.status(503).json({
+        error: 'Channel not configured',
+        checks: {
+          AZURE_TENANT_ID:          !!process.env.AZURE_TENANT_ID,
+          AZURE_CLIENT_ID:          !!process.env.AZURE_CLIENT_ID,
+          AZURE_CLIENT_SECRET:      !!process.env.AZURE_CLIENT_SECRET,
+          MAIL_FROM:                !!process.env.MAIL_FROM,
+          TEAMS_CHANNEL_TEAM_ID:    !!process.env.TEAMS_CHANNEL_TEAM_ID,
+          TEAMS_CHANNEL_ID:         !!process.env.TEAMS_CHANNEL_ID,
+        },
+      });
+    }
+    await teamsService.sendChannelNotification({
+      emoji: '🧪',
+      title: 'CreativeOps channel test',
+      rows: [
+        ['Triggered by', user.name],
+        ['Status',       'If you see this — channel notifications are working!'],
+      ],
+    });
+    res.json({ success: true, teamId: process.env.TEAMS_CHANNEL_TEAM_ID, channelId: process.env.TEAMS_CHANNEL_ID });
+  } catch (err) {
+    console.error('[diagnostics/channel-test]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/requests/:id', async (req, res) => {
   try {
     const { id } = req.params;
